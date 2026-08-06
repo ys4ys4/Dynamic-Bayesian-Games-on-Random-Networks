@@ -36,7 +36,7 @@ Agents observe a neighborhood $B(n)$ governed by probability distribution $\math
 ## 5. Tech Stack & Code Architecture
 *   **Stack:** Python, NetworkX (graphs), NumPy (vectorisation/math), SciPy (Gaussian CDFs), Pandas (data logging). Version control via Git/GitHub.
 *   **Centralised Game-Manager Pattern:** The `SequentialGame` class acts as the omniscient environment, evaluating graph topology, tracking history, and dispensing the social belief ($L_n$). 
-*   **Lightweight Agent:** The `Agent` class is strictly focused on cognition, evaluating the sum of its private LLR and the supplied social LLR ($l_n + L_n \ge 0$).
+*   **Lightweight Agent:** The `Agent` class is strictly focused on cognition, evaluating the sum of its private LLR and the supplied social LLR ($a_n + b_n \ge 0$).
 *   **Defensive Programming:** Tie-breaking relies on floating-point stability checks (`np.isclose` with `atol=1e-8`) to accurately capture weak information cascades.
 
 ## 6. Current Project Status

@@ -57,7 +57,7 @@ def gen_complete(N):
     return graph
 
 
-# Uniform attachment
+# Uniform attachment - unused
 
 def gen_unif(N, rng=None):
     """

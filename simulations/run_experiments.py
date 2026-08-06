@@ -278,7 +278,14 @@ def run_sim(
 
     for _ in range(runs):
         graph = gen_graph()
-        game = game_type(graph, graph_type, signal_type, q, rng=rng)
+        game = game_type(graph,
+                         graph_type,
+                         signal_type,
+                         q, rng=rng,
+                         k=k,
+                         p=p,
+                         sample=sample
+                         )
         game.play()
         running_accuracies.append(game.running_accuracy())
         convergence_metrics.append(game.convergence_metrics())
