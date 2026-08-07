@@ -4,28 +4,28 @@ from scipy.stats import norm
 from scipy.special import log_ndtr
 
 
-class Agent:
-    """
-    creates an agent with index n, private llr a, social llr b
-    handles:
-    decision making based on private and social llrs passed to it
-    """
-    def __init__(self, n, an, bn, rng=None):
-        self.n = n
-        self.an = an
-        self.bn = bn
-        self.rng = np.random.default_rng() if rng is None else rng
+# class Agent:
+#     """
+#     creates an agent with index n, private llr a, social llr b
+#     handles:
+#     decision making based on private and social llrs passed to it
+#     """
+#     def __init__(self, n, an, bn, rng=None):
+#         self.n = n
+#         self.an = an
+#         self.bn = bn
+#         self.rng = np.random.default_rng() if rng is None else rng
 
-    def decide(self):
-        """
-        returns action based on private and social log-likelihood ratios
-        """
-        llr = self.an + self.bn
-        if np.isclose(llr, 0, atol=1e-8):
-            return self.rng.choice([0, 1])
-        elif llr > 0:
-            return 0
-        return 1
+#     def decide(self):
+#         """
+#         returns action based on private and social log-likelihood ratios
+#         """
+#         llr = self.an + self.bn
+#         if np.isclose(llr, 0, atol=1e-8):
+#             return self.rng.choice([0, 1])
+#         elif llr > 0:
+#             return 0
+#         return 1
 
 
 class SequentialGame:
@@ -50,7 +50,8 @@ class SequentialGame:
                  rng=None,
                  k=None,
                  p=None,
-                 sample=None
+                 sample=None,
+                 M=None
                  ):
         self.graph = graph
         self.N = len(graph.nodes)
@@ -59,8 +60,8 @@ class SequentialGame:
         self.q = q if signal_type == "bounded" else norm.cdf(1)
         self.rng = np.random.default_rng() if rng is None else rng
         self.true_state = self.rng.choice([0, 1])
-        self.agents = {}
-        self.history = {}
+        self.history = np.zeros(self.N, dtype=int)
+        self.played = False
         self.belief_engine = BeliefEngine(
             self.N,
             graph_type,
@@ -71,7 +72,7 @@ class SequentialGame:
             k=k,
             p=p,
             sample=sample,
-            m=None,
+            M=M,
         )
         self.k = k
         self.p = p
@@ -95,38 +96,36 @@ class SequentialGame:
         plays sequential game depending on graph and signal type
         """
         sorted_nodes = sorted(list(self.graph.nodes))
-        history_array = np.zeros(self.N, dtype=int)
         for n in sorted_nodes:
             sn = self.draw_signal()
             an = self.belief_engine.priv_llr(sn)
-            bn = self.belief_engine.social_llr(n, history_array)
-            agent = Agent(n, an, bn, rng=self.rng)
-            action = agent.decide()
-            self.agents[n] = agent
+            bn = self.belief_engine.social_llr(n, self.history)
+            llr = an + bn
+            if np.isclose(llr, 0, atol=1e-8):
+                action = self.rng.choice([0, 1])
+            elif llr > 0:
+                action = 0
+            else:
+                action = 1
             self.history[n] = action
-            history_array[n] = action
             self.belief_engine.update_beliefs(an, action)
+        self.played = True
 
     def convergence_metrics(self, threshold=None):
         """
         returns whether game converged, whether converged to true state,
         index of first agent in lock-in streak, final accuracy
         """
-        if not self.history:
+        if not self.played:
             return False, None, None, None
 
         if threshold is None:
             threshold = self.N // 5
 
-        final_action = list(self.history.values())[-1]
-        actions = list(self.history.values())
+        final_action = self.history[-1]
 
-        lock_in_index = 0
-        for t in range(self.N - 1, -1, -1):
-            if actions[t] != final_action:
-                lock_in_index = t + 1
-                break
-
+        mismatches = np.where(self.history != final_action)[0]
+        lock_in_index = mismatches[-1] + 1 if len(mismatches) > 0 else 0
         streak_length = self.N - lock_in_index
 
         if streak_length >= threshold:
@@ -138,8 +137,7 @@ class SequentialGame:
         """
         returns array of running accuracy of actions compared to true state
         """
-        actions = np.array(list(self.history.values()))
-        correct_guesses = actions == self.true_state
+        correct_guesses = self.history == self.true_state
         return np.cumsum(correct_guesses) / np.arange(1, self.N + 1)
 
 
@@ -160,7 +158,7 @@ class BeliefEngine:
                  k=None,
                  p=None,
                  sample=None,
-                 m=None
+                 M=None
                  ):
         self.N = N
         self.graph_type = graph_type
@@ -168,30 +166,31 @@ class BeliefEngine:
         self.q = q
 
         self.adj_matrix = \
-            nx.to_scipy_sparse_array(graph, format='csr').T.tocsr()
+            nx.to_scipy_sparse_array(graph, format='csr').tocsr()
 
         self.bn = 0.0
         self.alpha = self.q if self.signal_type == "bounded" else norm.cdf(1)
         self.beta = 1 - self.alpha
         if graph_type == "previous":
             self.bn0 = np.log(self.alpha / self.beta)
-        else:
-            self.bn0 = 0.0
-        if graph_type == "previous":
             self.bn1 = np.log((1 - self.alpha) / (1 - self.beta))
         else:
-            self.bn1 = 0.0
+            self.bn0 = 0
+            self.bn1 = 0
+
+        if graph_type == "NEO":
+            self.k = k
+        elif graph_type == "ER":
+            self.p = p
+        elif graph_type == "BS":
+            self.sample = sample
 
         # rng for Monte Carlo simulation
         self.rng = np.random.default_rng() if rng is None else rng
-        self.k = k
-        self.p = p
-        self.sample = sample
-        self.M = int(m) if m is not None else 10000
-        self.M += self.M % 2
-        self.halfM = self.M // 2
-
         if self.graph_type in ["ER", "BS"]:
+            self.M = int(M) if M is not None else 1000
+            self.M += self.M % 2
+            self.halfM = self.M // 2
             if self.signal_type == "bounded":
                 draws0 = self.rng.random((self.halfM, self.N)) < self.q
                 draws1 = self.rng.random((self.halfM, self.N)) < self.q
@@ -204,10 +203,10 @@ class BeliefEngine:
                 draws1 = self.rng.normal(-1, 1, size=(self.halfM, self.N))
                 signal_matrix = np.vstack((draws0, draws1))
                 self.M_priv_llr = 2 * signal_matrix
-        self.M_actions = np.zeros((self.M, self.N), dtype=int)
-        self.M_running_ones = np.zeros(self.M, dtype=int)
-        self.mc_computed_upto = 0
-        self._precompute_mc_actions()
+            self.M_actions = np.zeros((self.M, self.N), dtype=int)
+            self.M_running_ones = np.zeros(self.M, dtype=int)
+            self.mc_computed_upto = 0
+            self._precompute_mc_actions()
 
     def priv_llr(self, s):
         """
@@ -347,11 +346,13 @@ class BeliefEngine:
         self.M_actions.fill(0)
         self.M_running_ones.fill(0)
         self.mc_computed_upto = 0
+        k_social_llr = np.zeros(self.M)
+        actions = np.zeros(self.M, dtype=int)
 
         for k in range(self.N):
             if not k:
-                k_social_llr = np.zeros(self.M)
-                actions = np.zeros(self.M, dtype=int)
+                k_social_llr.fill(0)
+                actions.fill(0)
             else:
                 if self.graph_type == "ER":
                     num_ones = self.rng.binomial(self.M_running_ones, self.p)
@@ -366,10 +367,10 @@ class BeliefEngine:
                     )
                     num_zeros = num_neighbours - num_ones
 
-                k_social_llr = (num_ones * np.log((1 - self.q) / self.q))\
+                k_social_llr[:] = (num_ones * np.log((1 - self.q) / self.q))\
                     + (num_zeros * np.log(self.q / (1 - self.q)))
             total_llr = self.M_priv_llr[:, k] + k_social_llr
-            actions = np.zeros(self.M, dtype=int)
+            actions.fill(0)
             actions[total_llr < 0] = 1
             zero_filter = np.isclose(total_llr, 0, atol=1e-8)
             num_zero_filter = np.sum(zero_filter)
