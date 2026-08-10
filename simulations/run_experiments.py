@@ -5,11 +5,10 @@ import numpy as np
 
 from simulations.game_engine import SequentialGame
 from simulations.networks import (
-    gen_complete,
-    gen_erg,
-    gen_prev,
     gen_neog,
-    gen_unif,
+    gen_erg,
+    gen_complete,
+    gen_prev,
     gen_bounded_sample
 )
 
@@ -31,9 +30,9 @@ class SimulationResult:
         yield self.params
 
 
-# large sim reducer
+# large sim metrics reducer
 
-def summarize_cascade_metrics(convergence_metrics, total_runs):
+def summarise_cascade_metrics(convergence_metrics, total_runs):
     """
     summarises convergence metrics from large simulation
     returns a dictionary with the following keys:
@@ -88,7 +87,7 @@ def collect_final_accuracies(convergence_metrics, _total_runs):
 
 # large sim progress loggers
 
-def make_simple_progress_logger(label, value_key, *, value_format=""):
+def make_simple_progress_logger(param, value_key, *, value_format=""):
     """
     returns simple progress logger function for large simulations
     logs value of loop parameter and result column
@@ -99,12 +98,12 @@ def make_simple_progress_logger(label, value_key, *, value_format=""):
         formatted_value = (
             format(value, value_format) if value_format else value
         )
-        print(f"Finished {label}={formatted_value}.")
+        print(f"Finished {param}={formatted_value}.")
 
     return log_progress
 
 
-def make_cascade_progress_logger(label, value_key):
+def make_cascade_progress_logger(param, value_key):
     """
     returns more functional progress logger function for large simulations
     which logs:
@@ -127,7 +126,7 @@ def make_cascade_progress_logger(label, value_key):
             else "N/A"
         )
         print(
-            f"Finished {label}={row[value_key]:.2f} | "
+            f"Finished {param}={row[value_key]:.2f} | "
             f"False Cascade: {row['prob_false_cascade']:.1%} | "
             f"True Cascade: {row['prob_true_cascade']:.1%} | "
             f"Avg Success Time: {success_time} | Avg Fail Time: {fail_time}"
@@ -136,21 +135,22 @@ def make_cascade_progress_logger(label, value_key):
     return log_progress
 
 
-# simulation functions
+# simulation helper functions
 
 def _validate_run_sim_inputs(
     graph_type,
     signal_type,
     agents,
-    p,
-    k,
+    runs,
     q,
-    runs
+    k,
+    p,
+    sample
 ):
     """
     validates inputs for run_sim function
     """
-    valid_graph_types = {"NEO", "ER", "complete", "UAM", "previous", "BS"}
+    valid_graph_types = {"NEO", "ER", "complete", "previous", "BS"}
     valid_signal_types = {"bounded", "unbounded"}
 
     if graph_type not in valid_graph_types:
@@ -171,37 +171,46 @@ def _validate_run_sim_inputs(
     if not isinstance(runs, numbers.Integral) or runs <= 0:
         raise ValueError("runs must be a positive integer.")
 
-    if not isinstance(k, numbers.Integral) or k <= 0:
-        raise ValueError("k (EIAs) must be a positive integer.")
-
-    if graph_type == "ER" and not 0 <= p <= 1:
-        raise ValueError("p must be between 0 and 1 for ER graphs.")
-
     if signal_type == "bounded":
         if not isinstance(q, numbers.Real) or not 0 < q < 1:
             raise ValueError("q must be a real number\
                               strictly between 0 and 1.")
 
+    if graph_type == "NEO":
+        if not isinstance(k, numbers.Integral) or k <= 0 or k > agents:
+            raise ValueError(f"k (EIAs) must be a positive integer\
+                            less than {agents}.")
+
+    if graph_type == "ER" and not 0 <= p <= 1:
+        raise ValueError("p must be between 0 and 1 for ER graphs.")
+
+    if graph_type == "BS":
+        if (
+            not isinstance(sample, numbers.Integral)
+            or sample <= 0
+            or sample > agents
+        ):
+            raise ValueError(f"Sample size must be a positive integer\
+                              less than {agents}.")
+
 
 def _get_graph_generator(
     graph_type,
     agents,
-    p=0.05,
+    rng=None,
     k=1,
-    sample=10,
-    rng=None
+    p=0.05,
+    sample=10
 ):
     """
     returns a graph generator function based on the specified graph_type
     """
     if graph_type == "NEO":
-        return lambda: gen_neog(agents, k)
+        return lambda: gen_neog(agents, k, rng=rng)
     if graph_type == "ER":
         return lambda: gen_erg(agents, p, rng=rng)
     if graph_type == "complete":
         return lambda: gen_complete(agents)
-    if graph_type == "UAM":
-        return lambda: gen_unif(agents, rng=rng)
     if graph_type == "previous":
         return lambda: gen_prev(agents)
     if graph_type == "BS":
@@ -209,17 +218,20 @@ def _get_graph_generator(
     raise ValueError("Invalid graph_type provided.")
 
 
+# simulation functions
+
 def run_sim(
     graph_type,
     signal_type,
     game_type=SequentialGame,
     agents=1000,
-    p=0.05,
-    k=1,
-    q=0.8,
     runs=5,
+    seed=None,
+    q=0.8,
+    k=1,
+    p=0.05,
     sample=10,
-    seed=None
+    M=None
 ):
     """
     runs simulation with specified parameters -
@@ -233,16 +245,18 @@ def run_sim(
     runs: number of simulation runs to perform
     sample: number of predecessors for BS graphs (ignored for other graphs)
     seed: random seed for reproducibility
+    M: number of simulations for Monte Carlo estimation (optional)
     returns a SimulationResult
     """
     _validate_run_sim_inputs(
         graph_type=graph_type,
         signal_type=signal_type,
         agents=agents,
-        p=p,
-        k=k,
+        runs=runs,
         q=q,
-        runs=runs
+        k=k,
+        p=p,
+        sample=sample
     )
 
     rng = np.random.default_rng(seed)
@@ -270,9 +284,9 @@ def run_sim(
     gen_graph = _get_graph_generator(
         graph_type,
         agents,
-        p=p,
-        k=k,
         rng=rng,
+        k=k,
+        p=p,
         sample=sample
     )
 
@@ -281,10 +295,12 @@ def run_sim(
         game = game_type(graph,
                          graph_type,
                          signal_type,
-                         q, rng=rng,
+                         rng=rng,
+                         q=q,
                          k=k,
                          p=p,
-                         sample=sample
+                         sample=sample,
+                         M=M
                          )
         game.play()
         running_accuracies.append(game.running_accuracy())
@@ -301,16 +317,16 @@ def run_overnight_sim(
     *,
     graph_type,
     signal_type,
+    agents,
+    runs,
+    seed_base=42,
     loop_values,
     loop_param_name,
     result_column_name=None,
-    runs,
-    agents,
-    seed_base=42,
-    output_csv=None,
-    reducer=summarize_cascade_metrics,
-    extra_params=None,
-    progress_callback=None
+    reducer=summarise_cascade_metrics,
+    output_csv_path=None,
+    progress_callback=None,
+    extra_params={}
 ):
     """
     runs a large simulation with specified parameters -
@@ -323,14 +339,23 @@ def run_overnight_sim(
     agents: number of agents in simulation
     seed_base: base random seed for reproducibility
     output_csv: path to save summary CSV
-    reducer: function to summarize convergence metrics
+    reducer: function to summarise convergence metrics
     extra_params: dictionary of additional parameters to pass to run_sim
     progress_callback: function to log progress after each loop value
     returns a DataFrame with summary of results for each loop value
     """
 
-    extra_params = extra_params or {}
+    extra_params = extra_params
     result_column_name = result_column_name or loop_param_name
+    output_csv_path = (
+        output_csv_path
+        or f"simulation_results_looping_over_{loop_param_name}.csv"
+    )
+    progress_callback = progress_callback or make_simple_progress_logger(
+        param=loop_param_name,
+        value_key=result_column_name
+    )
+
     rows = []
     run_kwargs = {
         "graph_type": graph_type,
@@ -345,14 +370,12 @@ def run_overnight_sim(
         run_kwargs[loop_param_name] = value
 
         result = run_sim(**run_kwargs)
+
         summary = reducer(result.convergence_metrics, runs)
         row = {result_column_name: value, **summary}
         rows.append(row)
 
-        if output_csv:
-            pd.DataFrame(rows).to_csv(output_csv, index=False)
-
-        if progress_callback is not None:
-            progress_callback(row)
+        pd.DataFrame(rows).to_csv(output_csv_path, index=False)
+        progress_callback(row)
 
     return pd.DataFrame(rows)

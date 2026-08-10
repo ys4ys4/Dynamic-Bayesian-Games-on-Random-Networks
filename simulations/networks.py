@@ -57,20 +57,6 @@ def gen_complete(N):
     return graph
 
 
-# Uniform attachment - unused
-
-def gen_unif(N, rng=None):
-    """
-    uniform attachment model
-    """
-    rng = np.random.default_rng() if rng is None else rng
-    graph = nx.DiGraph()
-    graph.add_nodes_from(range(N))
-    for i in range(1, N):
-        graph.add_edge(i, rng.integers(0, i))
-    return graph
-
-
 # Previous
 
 def gen_prev(N):
@@ -103,3 +89,17 @@ def gen_bounded_sample(N, k, rng=None):
             graph.add_edge(i, j)
 
     return graph
+
+
+# Uniform attachment - unused
+
+# def gen_unif(N, rng=None):
+#     """
+#     uniform attachment model
+#     """
+#     rng = np.random.default_rng() if rng is None else rng
+#     graph = nx.DiGraph()
+#     graph.add_nodes_from(range(N))
+#     for i in range(1, N):
+#         graph.add_edge(i, rng.integers(0, i))
+#     return graph

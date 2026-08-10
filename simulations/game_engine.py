@@ -4,41 +4,22 @@ from scipy.stats import norm
 from scipy.special import log_ndtr
 
 
-# class Agent:
-#     """
-#     creates an agent with index n, private llr a, social llr b
-#     handles:
-#     decision making based on private and social llrs passed to it
-#     """
-#     def __init__(self, n, an, bn, rng=None):
-#         self.n = n
-#         self.an = an
-#         self.bn = bn
-#         self.rng = np.random.default_rng() if rng is None else rng
-
-#     def decide(self):
-#         """
-#         returns action based on private and social log-likelihood ratios
-#         """
-#         llr = self.an + self.bn
-#         if np.isclose(llr, 0, atol=1e-8):
-#             return self.rng.choice([0, 1])
-#         elif llr > 0:
-#             return 0
-#         return 1
-
-
 class SequentialGame:
     """
     creates a sequential game with:
     graph = directed graph on which to play the game
-    graph_type
+    graph_type (str)
     signal_type = 'bounded' or 'unbounded
     q = signal accuracy
     rng = random number generator for reproducibility
+    k = number of royals
+    p = probability of edge in ER graph
+    sample = number of neighbours to sample in BS graph
+    M = number of Monte Carlo simulations for ER and BS graphs
 
     handles:
     signal generation
+    decision making
     game playing and tracking
     metrics for convergence and running accuracy
     """
@@ -46,37 +27,40 @@ class SequentialGame:
                  graph,
                  graph_type,
                  signal_type,
-                 q=None,
                  rng=None,
+                 q=None,
                  k=None,
                  p=None,
                  sample=None,
                  M=None
                  ):
         self.graph = graph
-        self.N = len(graph.nodes)
         self.graph_type = graph_type
         self.signal_type = signal_type
-        self.q = q if signal_type == "bounded" else norm.cdf(1)
+        self.N = len(graph.nodes)
         self.rng = np.random.default_rng() if rng is None else rng
-        self.true_state = self.rng.choice([0, 1])
-        self.history = np.zeros(self.N, dtype=int)
-        self.played = False
-        self.belief_engine = BeliefEngine(
-            self.N,
-            graph_type,
-            signal_type,
-            self.q,
-            graph,
-            rng=self.rng,
-            k=k,
-            p=p,
-            sample=sample,
-            M=M,
-        )
+        self.q = q if signal_type == "bounded" else norm.cdf(1)
         self.k = k
         self.p = p
         self.sample = sample
+        self.M = M
+
+        self.true_state = self.rng.choice([0, 1])
+        self.history = np.zeros(self.N, dtype=int)
+        self.played = False
+
+        self.belief_engine = BeliefEngine(
+            graph=self.graph,
+            graph_type=self.graph_type,
+            signal_type=self.signal_type,
+            N=self.N,
+            rng=self.rng,
+            q=self.q,
+            k=self.k,
+            p=self.p,
+            sample=self.sample,
+            M=self.M,
+        )
 
     def draw_signal(self):
         """
@@ -91,6 +75,16 @@ class SequentialGame:
             return self.rng.normal(-1, 1)
         return self.rng.normal(1, 1)
 
+    def decide(self, an, bn):
+        llr = an + bn
+        if np.isclose(llr, 0, atol=1e-8):
+            action = self.rng.choice([0, 1])
+        elif llr > 0:
+            action = 0
+        else:
+            action = 1
+        return action
+
     def play(self):
         """
         plays sequential game depending on graph and signal type
@@ -100,13 +94,7 @@ class SequentialGame:
             sn = self.draw_signal()
             an = self.belief_engine.priv_llr(sn)
             bn = self.belief_engine.social_llr(n, self.history)
-            llr = an + bn
-            if np.isclose(llr, 0, atol=1e-8):
-                action = self.rng.choice([0, 1])
-            elif llr > 0:
-                action = 0
-            else:
-                action = 1
+            action = self.decide(an, bn)
             self.history[n] = action
             self.belief_engine.update_beliefs(an, action)
         self.played = True
@@ -149,29 +137,32 @@ class BeliefEngine:
     updating beliefs based on actions
     """
     def __init__(self,
-                 N,
+                 graph,
                  graph_type,
                  signal_type,
-                 q,
-                 graph,
+                 N,
                  rng=None,
+                 q=None,
                  k=None,
                  p=None,
                  sample=None,
                  M=None
                  ):
-        self.N = N
-        self.graph_type = graph_type
-        self.signal_type = signal_type
-        self.q = q
-
         self.adj_matrix = \
             nx.to_scipy_sparse_array(graph, format='csr').tocsr()
+        self.graph_type = graph_type
+        self.signal_type = signal_type
+        self.N = N
+        # rng for Monte Carlo simulations in ER and BS graphs
+        self.rng = np.random.default_rng() if rng is None else rng
 
+        self.q = q
+        # exact belief update parameter initialisations
         self.bn = 0.0
-        self.alpha = self.q if self.signal_type == "bounded" else norm.cdf(1)
-        self.beta = 1 - self.alpha
         if graph_type == "previous":
+            self.alpha = (self.q if self.signal_type == "bounded"
+                          else norm.cdf(1))
+            self.beta = 1 - self.alpha
             self.bn0 = np.log(self.alpha / self.beta)
             self.bn1 = np.log((1 - self.alpha) / (1 - self.beta))
         else:
@@ -185,8 +176,6 @@ class BeliefEngine:
         elif graph_type == "BS":
             self.sample = sample
 
-        # rng for Monte Carlo simulation
-        self.rng = np.random.default_rng() if rng is None else rng
         if self.graph_type in ["ER", "BS"]:
             self.M = int(M) if M is not None else 1000
             self.M += self.M % 2
@@ -218,7 +207,7 @@ class BeliefEngine:
             return np.log(self.q / (1 - self.q))
         return 2 * s
 
-    def social_llr(self, n, history_array):
+    def social_llr(self, n, history):
         """
         computes social log-likelihood ratio for agent n based on history
         """
@@ -227,17 +216,17 @@ class BeliefEngine:
 
         elif self.graph_type == "previous":
             if n == 0:
-                return 0.0
-            return self.bn1 if history_array[n - 1] else self.bn0
+                return 0
+            return self.bn1 if history[n - 1] else self.bn0
 
         else:
             ptr_start = self.adj_matrix.indptr[n]
             ptr_end = self.adj_matrix.indptr[n+1]
             if ptr_start == ptr_end:
-                return 0.0
+                return 0
 
             nbd = self.adj_matrix.indices[ptr_start:ptr_end]
-            obs = history_array[nbd]
+            obs = history[nbd]
             if self.graph_type == "NEO":
                 num_ones = np.sum(obs)
                 num_zeros = len(obs) - num_ones
@@ -245,7 +234,7 @@ class BeliefEngine:
                 return (num_ones * np.log((1 - self.q) / self.q)) + \
                     (num_zeros * np.log(self.q / (1 - self.q)))
 
-            return self._mc_social_llr(n, nbd, obs, history_array)
+            return self._mc_social_llr(n, nbd, obs, history)
 
     def update_beliefs(self, an, action):
         """
