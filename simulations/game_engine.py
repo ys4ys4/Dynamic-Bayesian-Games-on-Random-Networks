@@ -157,10 +157,11 @@ class BeliefEngine:
         self.rng = np.random.default_rng() if rng is None else rng
 
         self.q = q
+        self.Q = max(q, 1-q)
         # exact belief update parameter initialisations
         self.bn = 0.0
         if graph_type == "previous":
-            self.alpha = (self.q if self.signal_type == "bounded"
+            self.alpha = (self.Q if self.signal_type == "bounded"
                           else norm.cdf(1))
             self.beta = 1 - self.alpha
             self.bn0 = np.log(self.alpha / self.beta)
@@ -177,7 +178,7 @@ class BeliefEngine:
             self.sample = sample
 
         if self.graph_type in ["ER", "BS"]:
-            self.M = int(M) if M is not None else 1000
+            self.M = int(M) if M is not None else 10000
             self.M += self.M % 2
             self.halfM = self.M // 2
             if self.signal_type == "bounded":
@@ -231,8 +232,8 @@ class BeliefEngine:
                 num_ones = np.sum(obs)
                 num_zeros = len(obs) - num_ones
 
-                return (num_ones * np.log((1 - self.q) / self.q)) + \
-                    (num_zeros * np.log(self.q / (1 - self.q)))
+                return (num_ones * np.log((1 - self.Q) / self.Q)) + \
+                    (num_zeros * np.log(self.Q / (1 - self.Q)))
 
             return self._mc_social_llr(n, nbd, obs, history)
 
@@ -246,21 +247,21 @@ class BeliefEngine:
 
                 if np.isclose(self.bn, wn, atol=1e-8):
                     if action:
-                        self.bn += np.log((1 - self.q) / self.q)
+                        self.bn += np.log((1 - self.Q) / self.Q)
                     else:
-                        self.bn += np.log((1 + self.q) / (2 - self.q))
+                        self.bn += np.log((1 + self.Q) / (2 - self.Q))
 
                 elif np.isclose(self.bn, -wn, atol=1e-8):
                     if action:
-                        self.bn += np.log((2 - self.q) / (1 + self.q))
+                        self.bn += np.log((2 - self.Q) / (1 + self.Q))
                     else:
-                        self.bn += np.log(self.q / (1 - self.q))
+                        self.bn += np.log(self.Q / (1 - self.Q))
 
                 elif -wn < self.bn < wn:
                     if action:
-                        self.bn += np.log((1 - self.q) / self.q)
+                        self.bn += np.log((1 - self.Q) / self.Q)
                     else:
-                        self.bn += np.log(self.q / (1 - self.q))
+                        self.bn += np.log(self.Q / (1 - self.Q))
 
                 else:
                     pass  # bn remains unchanged if outside [-wn, wn]
@@ -281,14 +282,14 @@ class BeliefEngine:
 
                 # first alpha beta update
                 if np.isclose(self.bn0, wn, atol=1e-8):
-                    self.alpha = (1 + self.q) * old_alpha / 2
-                    self.beta = (2 - self.q) * old_beta / 2
+                    self.alpha = (1 + self.Q) * old_alpha / 2
+                    self.beta = (2 - self.Q) * old_beta / 2
                 elif np.isclose(self.bn0, -wn, atol=1e-8):
-                    self.alpha = self.q * old_alpha / 2
-                    self.beta = (1 - self.q) * old_beta / 2
+                    self.alpha = self.Q * old_alpha / 2
+                    self.beta = (1 - self.Q) * old_beta / 2
                 elif -wn < self.bn0 < wn:
-                    self.alpha = self.q * old_alpha
-                    self.beta = (1 - self.q) * old_beta
+                    self.alpha = self.Q * old_alpha
+                    self.beta = (1 - self.Q) * old_beta
                 elif self.bn0 > wn:
                     self.alpha = old_alpha
                     self.beta = old_beta
@@ -297,14 +298,14 @@ class BeliefEngine:
 
                 # second alpha beta update
                 if np.isclose(self.bn1, wn, atol=1e-8):
-                    self.alpha += (1 + self.q) * (1 - old_alpha) / 2
-                    self.beta += (2 - self.q) * (1 - old_beta) / 2
+                    self.alpha += (1 + self.Q) * (1 - old_alpha) / 2
+                    self.beta += (2 - self.Q) * (1 - old_beta) / 2
                 elif np.isclose(self.bn1, -wn, atol=1e-8):
-                    self.alpha += self.q * (1 - old_alpha) / 2
-                    self.beta += (1 - self.q) * (1 - old_beta) / 2
+                    self.alpha += self.Q * (1 - old_alpha) / 2
+                    self.beta += (1 - self.Q) * (1 - old_beta) / 2
                 elif -wn < self.bn1 < wn:
-                    self.alpha += self.q * (1 - old_alpha)
-                    self.beta += (1 - self.q) * (1 - old_beta)
+                    self.alpha += self.Q * (1 - old_alpha)
+                    self.beta += (1 - self.Q) * (1 - old_beta)
                 elif self.bn1 > wn:
                     self.alpha += 1 - old_alpha
                     self.beta += 1 - old_beta
@@ -332,17 +333,11 @@ class BeliefEngine:
         if self.graph_type not in ["ER", "BS"]:
             return
 
-        self.M_actions.fill(0)
-        self.M_running_ones.fill(0)
-        self.mc_computed_upto = 0
         k_social_llr = np.zeros(self.M)
         actions = np.zeros(self.M, dtype=int)
 
         for k in range(self.N):
-            if not k:
-                k_social_llr.fill(0)
-                actions.fill(0)
-            else:
+            if k:
                 if self.graph_type == "ER":
                     num_ones = self.rng.binomial(self.M_running_ones, self.p)
                     num_zeros = self.rng.binomial(k - self.M_running_ones,
@@ -356,8 +351,8 @@ class BeliefEngine:
                     )
                     num_zeros = num_neighbours - num_ones
 
-                k_social_llr[:] = (num_ones * np.log((1 - self.q) / self.q))\
-                    + (num_zeros * np.log(self.q / (1 - self.q)))
+                k_social_llr[:] = (num_ones * np.log((1 - self.Q) / self.Q))\
+                    + (num_zeros * np.log(self.Q / (1 - self.Q)))
             total_llr = self.M_priv_llr[:, k] + k_social_llr
             actions.fill(0)
             actions[total_llr < 0] = 1
@@ -388,7 +383,17 @@ class BeliefEngine:
 
         hamming_distances = np.sum(simulated_obs != obs, axis=1)
         min_dist = np.min(hamming_distances)
-        closest_indices = np.where(hamming_distances <= min_dist + 1)[0]
-        count0 = np.sum(closest_indices < self.halfM)
-        count1 = np.sum(closest_indices >= self.halfM)
-        return np.log((count0 + 0.5) / (count1 + 0.5))
+
+        shifted_distances = hamming_distances - min_dist
+        bandwidth = np.mean(shifted_distances)
+
+        if bandwidth == 0:
+            bandwidth = 1.0
+
+        weights = np.exp(-shifted_distances / bandwidth)
+
+        weight0 = np.sum(weights[:self.halfM])
+        weight1 = np.sum(weights[self.halfM:])
+
+        eps = 1e-10
+        return np.log((weight0 + eps) / (weight1 + eps))
