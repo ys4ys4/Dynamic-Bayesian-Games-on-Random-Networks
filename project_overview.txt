@@ -36,15 +36,14 @@ Agents observe a neighborhood $B(n)$ governed by probability distribution $\math
 ## 5. Tech Stack & Code Architecture
 *   **Stack:** Python, NetworkX (graphs), NumPy (vectorisation/math), SciPy (Gaussian CDFs), Pandas (data logging). Version control via Git/GitHub.
 *   **Centralised Game-Manager Pattern:** The `SequentialGame` class acts as the omniscient environment, evaluating graph topology, tracking history, and dispensing the social belief ($L_n$). 
-*   **Lightweight Agent:** The `Agent` class is strictly focused on cognition, evaluating the sum of its private LLR and the supplied social LLR ($a_n + b_n \ge 0$).
 *   **Defensive Programming:** Tie-breaking relies on floating-point stability checks (`np.isclose` with `atol=1e-8`) to accurately capture weak information cascades.
 
 ## 6. Current Project Status
 *   **Completed:** Sequential baseline established. Acemoglu's Theorems 1, 2, and 3 empirically verified via Python simulations. Floating-point tie-breaking logic successfully isolates weak cascades.
 *   **Completed:** PBU mathematical fast-paths mathematically formalised and accurately implemented for Complete and Immediate-Predecessor graphs, with underflow risk mitigated.
 *   **Next Steps:** 
-    1. Implement the "Smart Agent, Naïve World" Monte Carlo Belief Estimator to correct correlation neglect on general deterministic and Erdős-Rényi DAGs.
-    2. Formalise the outcomes (probabilistically) of the NEO graph based on the number of excessively influential agents.
+    1. 
     **Later (after work on Acemoglu paper is complete):**
+    1. Investigate the relationship formally between signal accuracy and final game accuracy on complete graph (now that we have exact PBU) and compare (expecting the same) with ER graph where p=1.
     2. Expand the codebase to model Gale & Kariv repeated interactions across varying network topologies to measure the speed-versus-accuracy efficiency frontier.
     3. Complete the literature review in the LaTeX draft (Chapter 3 on Repeated Interaction).
