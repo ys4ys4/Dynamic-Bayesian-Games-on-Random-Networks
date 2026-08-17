@@ -1,0 +1,49 @@
+# Project Overview: Dynamic Bayesian Learning on Random Networks
+
+## 1. Core Research Objective
+Studying asymptotic learning failures caused by high-influence sequential network topologies (Acemoglu et al., 2011) and the conditions that lead to convergence under repeated Bayesian interaction (Gale & Kariv, 2003). The project aims to synthesise setups and results from both papers as well as empirical computational data from simulations into a rigorous 15-20 page academic manuscript.
+The computer simulations will involve verifications of the results from the two papers, as well as exploration of some new conjectures.
+
+## 2. Mathematical Framework & Game Mechanics
+*   **State Space:** True state $\theta \in \{0, 1\}$, with prior $\mathbb{P}(\theta=0) = \mathbb{P}(\theta=1) = 1/2$.
+*   **Players:** Countably infinite sequence of agents, $n \in \mathbb{N}$, deciding sequentially or interacting repeatedly.
+*   **Actions:** Current focus is a binary choice $x_n \in \{0, 1\}$. Future parameter sweeps may test extending the action space to a ternary "hesitation" choice $\{0, 0.5, 1\}$.
+*   **Signals & Beliefs:** Agent $n$ receives private signal $s_n \sim \mathbb{F}_\theta$. Measures $\mathbb{F}_0$ and $\mathbb{F}_1$ are mutually absolutely continuous to ensure no signal is fully revealing ($L(s) \in (0, \infty)$ almost surely). 
+    **Computer Simulation Signal Structures:**
+    *   *Bounded beliefs:* Symmetric Bernoulli distribution with fixed accuracy $q \in (0.5, 1)$.
+    *   *Unbounded beliefs:* Gaussian distributions $\mathbb{F}_0 = \mathcal{N}(1, 1)$ and $\mathbb{F}_1 = \mathcal{N}(-1, 1)$.
+*   **Updating Rules:** 
+    *   *Perfect Bayesian Updating (PBU):* Used for strictly nested topologies (Complete graphs) and Markovian chains (Immediate Predecessor graphs).
+    *   *Naïve Bayesian (LLR Summation):* Used as a boundedly rational heuristic to avoid NP-hard complexity on general DAGs, though it introduces correlation neglect ("phantom certainty").
+    *   *Monte Carlo Belief Estimator:* A "Smart Agent, Naïve World" particle-filtering approach used to approximate PBU on complex graphs by simulating hypothetical realities.
+
+## 3. Network Topologies
+Agents observe a neighborhood $B(n)$ governed by probability distribution $\mathbb{Q}_n$. Modeled as Directed Acyclic Graphs (DAGs):
+*   **Non-Expanding Observations (NEO):** "Royal Family" graph where the first $k$ agents are excessively influential, leading to cascades.
+*   **Expanding / Stochastic:** Erdős-Rényi / Gilbert $G(N,p)$ where agents see predecessors with probability $p$. 
+*   **Deterministic:** Complete graph (sees everyone), Immediate Predecessor (sees $n-1$ only).
+*   **Complex/Stress-Test Graphs:** Uniform Attachment, Bounded Sample, Barabási-Albert (Scale-Free hubs), and Stochastic Block Models (Echo Chambers).
+
+## 4. Standard Notation Guide
+*   $N$: Total number of agents/nodes in simulation.
+*   $\theta$: True state of the world.
+*   $x_n$: Action taken by agent $n$.
+*   $s_n$: Private signal of agent $n$.
+*   $B(n), \mathbb{Q}_n$: Realised neighborhood and its probability distribution.
+*   $q$: Signal accuracy for bounded distributions (default 0.8).
+*   $k$: Number of excessively influential agents.
+
+## 5. Tech Stack & Code Architecture
+*   **Stack:** Python, NetworkX (graphs), NumPy (vectorisation/math), SciPy (Gaussian CDFs), Pandas (data logging). Version control via Git/GitHub.
+*   **Centralised Game-Manager Pattern:** The `SequentialGame` class acts as the omniscient environment, evaluating graph topology, tracking history, and dispensing the social belief ($L_n$). 
+*   **Defensive Programming:** Tie-breaking relies on floating-point stability checks (`np.isclose` with `atol=1e-8`) to accurately capture weak information cascades.
+
+## 6. Current Project Status
+*   **Completed:** Sequential baseline established. Acemoglu's Theorems 1, 2, and 3 empirically verified via Python simulations. Floating-point tie-breaking logic successfully isolates weak cascades.
+*   **Completed:** PBU mathematical fast-paths mathematically formalised and accurately implemented for Complete and Immediate-Predecessor graphs, with underflow risk mitigated.
+*   **Next Steps:** 
+    1. 
+    **Later (after work on Acemoglu paper is complete):**
+    1. Investigate the relationship formally between signal accuracy and final game accuracy on complete graph (now that we have exact PBU) and compare (expecting the same) with ER graph where p=1.
+    2. Expand the codebase to model Gale & Kariv repeated interactions across varying network topologies to measure the speed-versus-accuracy efficiency frontier.
+    3. Complete the literature review in the LaTeX draft (Chapter 3 on Repeated Interaction).
