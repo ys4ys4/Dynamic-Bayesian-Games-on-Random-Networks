@@ -93,7 +93,7 @@ class SequentialGame:
         for n in sorted_nodes:
             sn = self.draw_signal()
             an = self.belief_engine.priv_llr(sn)
-            bn = self.belief_engine.social_llr(n, self.history)
+            bn = self.belief_engine.soc_llr(n, self.history)
             action = self.decide(an, bn)
             self.history[n] = action
             self.belief_engine.update_beliefs(an, action)
@@ -177,7 +177,9 @@ class BeliefEngine:
         elif graph_type == "BS":
             self.sample = sample
 
-        if self.graph_type in ["ER", "BS"]:
+        self.mclist = ["ER", "BS"]
+
+        if self.graph_type in self.mclist:
             self.M = int(M) if M is not None else 10000
             self.M += self.M % 2
             self.halfM = self.M // 2
@@ -195,7 +197,6 @@ class BeliefEngine:
                 self.M_priv_llr = 2 * signal_matrix
             self.M_actions = np.zeros((self.M, self.N), dtype=int)
             self.M_running_ones = np.zeros(self.M, dtype=int)
-            self.mc_computed_upto = 0
             self._precompute_mc_actions()
 
     def priv_llr(self, s):
@@ -208,7 +209,7 @@ class BeliefEngine:
             return np.log(self.q / (1 - self.q))
         return 2 * s
 
-    def social_llr(self, n, history):
+    def soc_llr(self, n, history):
         """
         computes social log-likelihood ratio for agent n based on history
         """
@@ -220,22 +221,21 @@ class BeliefEngine:
                 return 0
             return self.bn1 if history[n - 1] else self.bn0
 
-        else:
-            ptr_start = self.adj_matrix.indptr[n]
-            ptr_end = self.adj_matrix.indptr[n+1]
-            if ptr_start == ptr_end:
-                return 0
+        ptr_start = self.adj_matrix.indptr[n]
+        ptr_end = self.adj_matrix.indptr[n+1]
+        if ptr_start == ptr_end:
+            return 0
+        nbd = self.adj_matrix.indices[ptr_start:ptr_end]
+        obs = history[nbd]
 
-            nbd = self.adj_matrix.indices[ptr_start:ptr_end]
-            obs = history[nbd]
-            if self.graph_type == "NEO":
-                num_ones = np.sum(obs)
-                num_zeros = len(obs) - num_ones
+        if self.graph_type in self.mclist:
+            return self._mc_soc_llr(n, nbd, obs, history)
 
-                return (num_ones * np.log((1 - self.Q) / self.Q)) + \
-                    (num_zeros * np.log(self.Q / (1 - self.Q)))
+        num_ones = np.sum(obs)
+        num_zeros = len(obs) - num_ones
 
-            return self._mc_social_llr(n, nbd, obs, history)
+        return (num_ones * np.log((1 - self.Q) / self.Q)) + \
+            (num_zeros * np.log(self.Q / (1 - self.Q)))
 
     def update_beliefs(self, an, action):
         """
@@ -330,10 +330,8 @@ class BeliefEngine:
         precompute Monte Carlo actions for all agents once so later queries
         only compare against stored trajectories.
         """
-        if self.graph_type not in ["ER", "BS"]:
-            return
 
-        k_social_llr = np.zeros(self.M)
+        k_soc_llr = np.zeros(self.M)
         actions = np.zeros(self.M, dtype=int)
 
         for k in range(self.N):
@@ -351,9 +349,9 @@ class BeliefEngine:
                     )
                     num_zeros = num_neighbours - num_ones
 
-                k_social_llr[:] = (num_ones * np.log((1 - self.Q) / self.Q))\
+                k_soc_llr[:] = (num_ones * np.log((1 - self.Q) / self.Q))\
                     + (num_zeros * np.log(self.Q / (1 - self.Q)))
-            total_llr = self.M_priv_llr[:, k] + k_social_llr
+            total_llr = self.M_priv_llr[:, k] + k_soc_llr
             actions.fill(0)
             actions[total_llr < 0] = 1
             zero_filter = np.isclose(total_llr, 0, atol=1e-8)
@@ -364,15 +362,11 @@ class BeliefEngine:
             self.M_actions[:, k] = actions
             self.M_running_ones += actions
 
-        self.mc_computed_upto = self.N
-
-    def _mc_social_llr(self, n, nbd, obs, history_array):
+    def _mc_soc_llr(self, n, nbd, obs, history_array):
         """
         computes social log-likelihood ratio for agent n based on history
         using Monte Carlo simulation for ER and BS graphs
         """
-        if self.mc_computed_upto < self.N:
-            self._precompute_mc_actions()
         simulated_obs = self.M_actions[:, nbd]
         matches = np.all(simulated_obs == obs, axis=1)
         count0 = np.sum(matches[:self.halfM])
