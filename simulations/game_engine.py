@@ -235,7 +235,7 @@ class BeliefEngine:
                 return (num_ones * np.log((1 - self.Q) / self.Q)) + \
                     (num_zeros * np.log(self.Q / (1 - self.Q)))
 
-            return self._mc_social_llr(n, nbd, obs, history)
+            return self._mc_soc_llr(n, nbd, obs, history)
 
     def update_beliefs(self, an, action):
         """
@@ -327,73 +327,89 @@ class BeliefEngine:
 
     def _precompute_mc_actions(self):
         """
-        precompute Monte Carlo actions for all agents once so later queries
-        only compare against stored trajectories.
+        Precomputes Monte Carlo actions, allowing agents inside the simulation
+        to act as Perfect Bayesians by evaluating the empirical distribution
+        of the MC paths dynamically. (Fully Vectorized)
         """
-        if self.graph_type not in ["ER", "BS"]:
-            return
-
-        k_social_llr = np.zeros(self.M)
         actions = np.zeros(self.M, dtype=int)
 
+        # We will use this to flatten 2D coordinates into 1D indices
+        MAX_N = self.N + 1
+        MAX_FLAT_INDEX = MAX_N ** 2
+
         for k in range(self.N):
-            if k:
+            if k == 0:
+                # Agent 0 has no neighbors, social LLR is 0
+                total_llr = self.M_priv_llr[:, k]
+            else:
+                # 1. Generate stochastic neighborhoods for all M paths
                 if self.graph_type == "ER":
                     num_ones = self.rng.binomial(self.M_running_ones, self.p)
                     num_zeros = self.rng.binomial(k - self.M_running_ones,
                                                   self.p)
+                    num_neighbors = num_ones + num_zeros
                 elif self.graph_type == "BS":
-                    num_neighbours = min(k, self.sample)
+                    num_neighbors = np.full(self.M, min(k, self.sample))
                     num_ones = self.rng.hypergeometric(
                         self.M_running_ones,
                         k - self.M_running_ones,
-                        num_neighbours
+                        num_neighbors
                     )
-                    num_zeros = num_neighbours - num_ones
 
-                k_social_llr[:] = (num_ones * np.log((1 - self.Q) / self.Q))\
-                    + (num_zeros * np.log(self.Q / (1 - self.Q)))
-            total_llr = self.M_priv_llr[:, k] + k_social_llr
+                # 2. Flatten the (num_neighbors, num_ones)
+                # pairs into a 1D index
+                flat_indices = (num_neighbors * MAX_N) + num_ones
+
+                # Split indices by State 0 and State 1
+                flat_idx_0 = flat_indices[:self.halfM]
+                flat_idx_1 = flat_indices[self.halfM:]
+
+                # 3. Fast counting using bincount
+                # (equivalent to the dict counting)
+                counts_0 = np.bincount(flat_idx_0, minlength=MAX_FLAT_INDEX)
+                counts_1 = np.bincount(flat_idx_1, minlength=MAX_FLAT_INDEX)
+
+                # Map the counts back to all M paths simultaneously
+                c0_all = counts_0[flat_indices]
+                c1_all = counts_1[flat_indices]
+
+                # 4. Assign true Bayesian LLR
+                # based on empirical MC distribution
+                eps = 1e-10
+                k_soc_llr = np.log((c0_all + eps) / (c1_all + eps))
+
+                total_llr = self.M_priv_llr[:, k] + k_soc_llr
+
+            # 5. Simulated agents make decisions based on True Bayesian LLR
             actions.fill(0)
             actions[total_llr < 0] = 1
+
             zero_filter = np.isclose(total_llr, 0, atol=1e-8)
-            num_zero_filter = np.sum(zero_filter)
-            if num_zero_filter:
-                actions[zero_filter] = self.rng.choice([0, 1],
-                                                       size=num_zero_filter)
+            num_zero = np.sum(zero_filter)
+            if num_zero:
+                actions[zero_filter] = self.rng.choice([0, 1], size=num_zero)
+
             self.M_actions[:, k] = actions
             self.M_running_ones += actions
 
-        self.mc_computed_upto = self.N
+    def _mc_soc_llr(self, n, nbd, obs, history_array):
+        """
+        Computes social LLR using the Sufficient Statistic Approximation.
+        Compresses the exact neighborhood vector into a simple sum.
+        """
+        # The sufficient statistic: How many 1s were observed?
+        num_ones = np.sum(obs)
 
-    def _mc_social_llr(self, n, nbd, obs, history_array):
-        """
-        computes social log-likelihood ratio for agent n based on history
-        using Monte Carlo simulation for ER and BS graphs
-        """
-        if self.mc_computed_upto < self.N:
-            self._precompute_mc_actions()
+        # Extract the simulated actions for this specific neighborhood
         simulated_obs = self.M_actions[:, nbd]
-        matches = np.all(simulated_obs == obs, axis=1)
-        count0 = np.sum(matches[:self.halfM])
-        count1 = np.sum(matches[self.halfM:])
-        min_exact_matches = 30
-        if (count0 + count1) >= min_exact_matches:
-            return np.log((count0 + 0.5) / (count1 + 0.5))
 
-        hamming_distances = np.sum(simulated_obs != obs, axis=1)
-        min_dist = np.min(hamming_distances)
+        # Compress the simulated sequences into simulated sums
+        simulated_ones = np.sum(simulated_obs, axis=1)
 
-        shifted_distances = hamming_distances - min_dist
-        bandwidth = np.mean(shifted_distances)
+        # Count exact sufficient statistic matches in Theta=0 and Theta=1 paths
+        count0 = np.sum(simulated_ones[:self.halfM] == num_ones)
+        count1 = np.sum(simulated_ones[self.halfM:] == num_ones)
 
-        if bandwidth == 0:
-            bandwidth = 1.0
-
-        weights = np.exp(-shifted_distances / bandwidth)
-
-        weight0 = np.sum(weights[:self.halfM])
-        weight1 = np.sum(weights[self.halfM:])
-
+        # True Bayesian likelihood ratio of the sufficient statistic
         eps = 1e-10
-        return np.log((weight0 + eps) / (weight1 + eps))
+        return np.log((count0 + eps) / (count1 + eps))
