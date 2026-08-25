@@ -388,6 +388,11 @@ def run_overnight_sim(
     returns a DataFrame with summary of results for each loop value
     """
 
+    if game_type == "SequentialGame":
+        game_type = SequentialGame
+    elif game_type == "RepeatedGame":
+        game_type = RepeatedGame
+
     result_column_name = result_column_name or loop_param_name
     output_csv_path = (
         output_csv_path

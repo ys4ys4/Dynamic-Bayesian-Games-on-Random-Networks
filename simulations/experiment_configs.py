@@ -13,16 +13,18 @@ from simulations.run_experiments import (
 @dataclass(frozen=True)
 class ExperimentConfig:
     name: str
+    game_type: str
     graph_type: str
-    signal_type: str
     agents: int
     runs: int
     seed_base: int
-    loop_values: np.ndarray
+    signal_type: str
     loop_param_name: str
+    loop_values: np.ndarray
     result_column_name: str
     reducer: object
     progress_callback: object
+    extra_params: dict
     output_csv_path: str
     plot_path: str | None = None
     plot_title: str | None = None
@@ -39,6 +41,7 @@ class ExperimentConfig:
 # MC estimate (tbd)
 ER_BOUNDED_CONFIG = ExperimentConfig(
     name="ER bounded",
+    game_type="SequentialGame",
     graph_type="ER",
     agents=1000,
     runs=1000,
@@ -65,6 +68,7 @@ ER_BOUNDED_CONFIG = ExperimentConfig(
 # estimated time = 12.25 hours with 1000 runs, 5000 agents, and 50 k vals
 THEOREM_1_CONFIG = ExperimentConfig(
     name="theorem 1",
+    game_type="SequentialGame",
     graph_type="NEO",
     agents=5000,
     runs=1000,
@@ -96,6 +100,7 @@ THEOREM_1_CONFIG = ExperimentConfig(
 # MC estimate (tbd)
 THEOREM_2_CONFIG = ExperimentConfig(
     name="theorem 2",
+    game_type="SequentialGame",
     graph_type="ER",
     agents=1000,
     runs=100,
@@ -122,6 +127,7 @@ THEOREM_2_CONFIG = ExperimentConfig(
 # estimated time = 6.89 hours with 1000 runs, 1000 agents, and 19 q vals
 THEOREM_3I_CONFIG = ExperimentConfig(
     name="theorem 3i",
+    game_type="SequentialGame",
     graph_type="complete",
     agents=1000,
     runs=1000,
@@ -148,6 +154,7 @@ THEOREM_3I_CONFIG = ExperimentConfig(
 # estimated time = 1.43 hours with 1000 runs, 1000 agents, and 19 q vals
 THEOREM_3II_CONFIG = ExperimentConfig(
     name="theorem 3ii",
+    game_type="SequentialGame",
     graph_type="previous",
     agents=5000,
     runs=1000,
@@ -178,6 +185,7 @@ THEOREM_3II_CONFIG = ExperimentConfig(
 # MC estimate (tbd)
 THEOREM_3III_CONFIG = ExperimentConfig(
     name="theorem 3iii",
+    game_type="SequentialGame",
     graph_type="BS",
     agents=10000,
     runs=1000,
