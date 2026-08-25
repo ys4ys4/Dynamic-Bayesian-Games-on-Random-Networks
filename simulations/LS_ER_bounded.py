@@ -11,16 +11,17 @@ start_time = time.time()
 
 run_overnight_sim(
     graph_type=config.graph_type,
-    signal_type=config.signal_type,
     agents=config.agents,
     runs=config.runs,
     seed_base=config.seed_base,
-    loop_values=config.loop_values,
+    signal_type=config.signal_type,
     loop_param_name=config.loop_param_name,
+    loop_values=config.loop_values,
     result_column_name=config.result_column_name,
     reducer=config.reducer,
     output_csv_path=config.output_csv_path,
-    progress_callback=config.progress_callback
+    progress_callback=config.progress_callback,
+    extra_params=config.extra_params
 )
 
 end_time = time.time()

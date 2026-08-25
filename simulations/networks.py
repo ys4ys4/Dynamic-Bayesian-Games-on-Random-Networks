@@ -3,6 +3,10 @@
 import networkx as nx
 import numpy as np
 
+# ==========================================
+# Sequential Learning Model (SLM) Graphs
+# ==========================================
+
 
 # Basic non-expanding observations
 
@@ -103,3 +107,41 @@ def gen_bounded_sample(N, k, rng=None):
 #     for i in range(1, N):
 #         graph.add_edge(i, rng.integers(0, i))
 #     return graph
+
+
+# ==========================================
+# Repeated Learning Model (RLM) Graphs
+# ==========================================
+
+
+# complete
+
+def gen_complete_connected(N):
+    """
+    RLM complete graph
+    every agent observes every other agent
+    """
+    graph = nx.DiGraph()
+    graph.add_nodes_from(range(N))
+    edges = [(i, j) for i in range(N) for j in range(N) if i != j]
+    graph.add_edges_from(edges)
+    return graph
+
+
+# star
+
+def gen_star(N, dictator=False):
+    """
+    RLM star graph
+    agent 0 is the hub (c.f. EIA)
+    agents 1 to N-1 are the periphery
+    if not dictator (connected): periphery sees hub, hub sees periphery.
+    if dictator (disconnected): periphery sees hub, hub sees no one.
+    """
+    graph = nx.DiGraph()
+    graph.add_nodes_from(range(N))
+    for i in range(1, N):
+        graph.add_edge(i, 0)
+        if not dictator:
+            graph.add_edge(0, i)
+    return graph

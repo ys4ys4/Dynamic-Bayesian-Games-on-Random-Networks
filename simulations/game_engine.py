@@ -26,8 +26,8 @@ class SequentialGame:
     def __init__(self,
                  graph,
                  graph_type,
-                 signal_type,
                  rng=None,
+                 signal_type="unbounded",
                  q=None,
                  k=None,
                  p=None,
@@ -36,9 +36,9 @@ class SequentialGame:
                  ):
         self.graph = graph
         self.graph_type = graph_type
-        self.signal_type = signal_type
         self.N = len(graph.nodes)
         self.rng = np.random.default_rng() if rng is None else rng
+        self.signal_type = signal_type
         self.q = q if signal_type == "bounded" else norm.cdf(1)
         self.k = k
         self.p = p
@@ -49,17 +49,17 @@ class SequentialGame:
         self.history = np.zeros(self.N, dtype=int)
         self.played = False
 
-        self.belief_engine = BeliefEngine(
+        self.belief_engine = SequentialBeliefEngine(
             graph=self.graph,
             graph_type=self.graph_type,
-            signal_type=self.signal_type,
             N=self.N,
             rng=self.rng,
+            signal_type=self.signal_type,
             q=self.q,
             k=self.k,
             p=self.p,
             sample=self.sample,
-            M=self.M,
+            M=self.M
         )
 
     def draw_signal(self):
@@ -129,7 +129,7 @@ class SequentialGame:
         return np.cumsum(correct_guesses) / np.arange(1, self.N + 1)
 
 
-class BeliefEngine:
+class SequentialBeliefEngine:
     """
     creates a belief engine to compute posterior beliefs based on actions
     handles:
@@ -139,9 +139,9 @@ class BeliefEngine:
     def __init__(self,
                  graph,
                  graph_type,
-                 signal_type,
                  N,
                  rng=None,
+                 signal_type="unbounded",
                  q=None,
                  k=None,
                  p=None,
@@ -151,11 +151,11 @@ class BeliefEngine:
         self.adj_matrix = \
             nx.to_scipy_sparse_array(graph, format='csr').tocsr()
         self.graph_type = graph_type
-        self.signal_type = signal_type
         self.N = N
         # rng for Monte Carlo simulations in ER and BS graphs
         self.rng = np.random.default_rng() if rng is None else rng
 
+        self.signal_type = signal_type
         self.q = q
         self.Q = max(q, 1-q)
         # exact belief update parameter initialisations
@@ -371,14 +371,14 @@ class BeliefEngine:
         matches = np.all(simulated_obs == obs, axis=1)
         count0 = np.sum(matches[:self.halfM])
         count1 = np.sum(matches[self.halfM:])
-        min_exact_matches = 30
+        min_exact_matches = 0.005 * self.M
         if (count0 + count1) >= min_exact_matches:
             return np.log((count0 + 0.5) / (count1 + 0.5))
 
-        hamming_distances = np.sum(simulated_obs != obs, axis=1)
-        min_dist = np.min(hamming_distances)
+        distances = np.sum(simulated_obs != obs, axis=1)
+        min_dist = np.min(distances)
 
-        shifted_distances = hamming_distances - min_dist
+        shifted_distances = distances - min_dist
         bandwidth = np.mean(shifted_distances)
 
         if bandwidth == 0:
@@ -391,3 +391,135 @@ class BeliefEngine:
 
         eps = 1e-10
         return np.log((weight0 + eps) / (weight1 + eps))
+
+
+class RepeatedGame:
+    """
+    creates a repeated game with:
+    graph = directed graph on which to play the game
+    graph_type (str)
+    signal_type = 'bounded' or 'unbounded'
+    q = signal accuracy
+    rng = random number generator for reproducibility
+
+    handles:
+    signal generation
+    decision making
+    game playing and tracking
+    metrics for convergence and running accuracy
+    """
+
+    def __init__(self,
+                 graph,
+                 graph_type,
+                 rng=None,
+                 **kwargs
+                 ):
+        self.graph = graph
+        self.graph_type = graph_type
+        self.N = len(graph.nodes)
+        self.rng = np.random.default_rng() if rng is None else rng
+        self.max_T = 100
+
+        self.true_state = self.rng.choice([0, 1])
+
+        self.history = []
+        self.played = False
+        self.converged_at_t = None
+
+        self.belief_engine = RepeatedBeliefEngine(
+            graph=self.graph,
+            graph_type=self.graph_type,
+            N=self.N
+        )
+
+    def draw_signals(self):
+        if self.true_state:
+            return self.rng.normal(-1, 1, self.N)
+        return self.rng.normal(1, 1, self.N)
+
+    def decide(self, ans, bnts):
+        total_llrs = ans + bnts
+        actions = np.zeros(self.N, dtype=int)
+        actions[total_llrs < 0] = 1
+        zero_filter = np.isclose(total_llrs, 0, atol=1e-8)
+        num_zero_filter = np.sum(zero_filter)
+        if num_zero_filter:
+            actions[zero_filter] = self.rng.choice([0, 1],
+                                                   size=num_zero_filter)
+        return actions
+
+    def play(self):
+        signals = self.draw_signals()
+        ans = self.belief_engine.priv_llrs(signals)
+
+        for t in range(self.max_T):
+            bnts = self.belief_engine.soc_llrs(t, self.history)
+            actions = self.decide(ans, bnts)
+            self.history.append(actions)
+
+            if t and np.array_equal(self.history[t], self.history[t-1]):
+                self.converged_at_t = t
+                break
+            self.belief_engine.update_beliefs(bnts, actions)
+
+        self.played = True
+
+    def convergence_metrics(self):
+        if not self.played:
+            return False, None, None, None
+
+        final_actions = self.history[-1]
+        final_accuracy = np.mean(final_actions == self.true_state)
+
+        reached_absorbing_state = (self.converged_at_t is not None)
+
+        is_consensus = np.all(final_actions == final_actions[0])
+        success = bool(is_consensus and final_actions[0] == self.true_state)
+        return (
+            reached_absorbing_state,
+            success,
+            self.converged_at_t,
+            final_accuracy,
+        )
+
+    def running_accuracy(self):
+        accuracies = [
+            np.mean(actions == self.true_state) for actions in self.history
+        ]
+        return np.array(accuracies)
+
+
+class RepeatedBeliefEngine:
+    def __init__(self, graph, graph_type, N):
+        self.adj_matrix = nx.to_scipy_sparse_array(graph, format='csr').tocsr()
+        self.graph_type = graph_type
+        self.N = N
+        self.lbs = np.full(self.N, -np.inf)
+        self.ubs = np.full(self.N, np.inf)
+        self.contribs = np.zeros(self.N)
+
+    def priv_llrs(self, signals):
+        return 2 * signals
+
+    def soc_llrs(self):
+        if self.graph_type == "complete_connected":
+            total_soc_llr = np.sum(self.contribs)
+            return total_soc_llr - self.contribs
+        return np.zeros(self.N)
+
+    def update_beliefs(self, bnts, actions):
+        if self.graph_type == "complete_connected":
+            for agent in range(self.N):
+                threshold = -bnts[agent]/2
+                if actions[agent]:
+                    self.ubs[agent] = min(self.ubs[agent], threshold)
+                else:
+                    self.lbs[agent] = max(self.lbs[agent], threshold)
+                p_ts0 = norm.cdf(self.ubs[agent] - 1)\
+                    - norm.cdf(self.lbs[agent] - 1)
+                p_ts1 = norm.cdf(self.ubs[agent] + 1)\
+                    - norm.cdf(self.lbs[agent] + 1)
+                p_ts0 = np.clip(p_ts0, 1e-15, 1)
+                p_ts1 = np.clip(p_ts1, 1e-15, 1)
+                self.contribs[agent] = np.log((p_ts0/p_ts1))
