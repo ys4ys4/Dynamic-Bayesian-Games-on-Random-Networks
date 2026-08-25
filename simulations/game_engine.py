@@ -362,7 +362,7 @@ class SequentialBeliefEngine:
             self.M_actions[:, k] = actions
             self.M_running_ones += actions
 
-    def _mc_soc_llr(self, n, nbd, obs, history_array):
+    def _mc_soc_llr(self, nbd, obs):
         """
         computes social log-likelihood ratio for agent n based on history
         using Monte Carlo simulation for ER and BS graphs
@@ -454,7 +454,7 @@ class RepeatedGame:
         ans = self.belief_engine.priv_llrs(signals)
 
         for t in range(self.max_T):
-            bnts = self.belief_engine.soc_llrs(t, self.history)
+            bnts = self.belief_engine.soc_llrs()
             actions = self.decide(ans, bnts)
             self.history.append(actions)
 

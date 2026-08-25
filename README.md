@@ -19,7 +19,7 @@ For development tools:
 python -m pip install -e '.[dev]'
 ```
 
-The environment is intentionally described by `pyproject.toml`; the local `venv/` directory is not a portable dependency specification.
+The environment is intentionally described by `pyproject.toml`; local virtual-environment directories are not portable dependency specifications.
 
 ## Smoke Test
 
@@ -33,7 +33,15 @@ This checks package imports, graph generation, the sequential engine, and the re
 
 ## Running Experiments
 
-The `LS_*.py` modules contain the current large experiment entry points. They use the configurations in `simulations/experiment_configs.py` and write CSV output under `data/`. Review the agent count, run count, and output path before launching a long job, especially when transferring a run to HPC.
+Run experiment commands from the repository root. The `LS_*.py` modules contain the current large sequential-learning entry points. They use the configurations in `simulations/experiment_configs.py` and write CSV output under `data/`.
+
+For example:
+
+```text
+python -m simulations.LS_theorem_3i
+```
+
+Review the agent count, run count, and output path before launching a long job, especially when transferring a run to HPC.
 
 For a small direct run:
 
@@ -57,5 +65,11 @@ result = run_sim(
 - Pass an explicit integer `seed` to `run_sim`.
 - A run uses one NumPy generator for graph generation and gameplay, so changing graph construction changes the subsequent random stream.
 - Record the commit, Python version, dependency versions, configuration values, and output file for published results.
-- Existing CSV and image files are generated artifacts and are ignored by Git. Preserve the exact inputs and commit separately when archiving a result.
-- The notebooks are exploratory and may depend on an older API. The Python modules and the smoke test are the canonical runnable path.
+- Newly generated CSV and image files are ignored by Git. Preserve published outputs together with their exact inputs and commit when archiving a result.
+- The notebooks are exploratory and aligned with the current Python API. The Python modules and the smoke test are the canonical runnable path.
+
+## Current Scope
+
+- The sequential-learning workflow is the currently validated simulation path.
+- Monte Carlo belief updating is an approximation for the stochastic ER and bounded-sample network models.
+- Repeated-learning work is ongoing. Complete-graph experiments are under development, and star-graph belief logic has not yet been implemented.
