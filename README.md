@@ -1,6 +1,11 @@
 # Social Learning Simulations
 
-Python simulations for sequential and repeated Bayesian social-learning models, including the network structures used to study the results of Acemoglu et al. (2011) and Gale and Kariv (2003).
+Python simulations for studying Bayesian social learning on directed networks. The repository contains two related models:
+
+- **Sequential Learning Model (SLM):** agents act once, in order, and observe actions from earlier agents.
+- **Repeated Learning Model (RLM):** agents update and act over several rounds while observing connected neighbours.
+
+The simulations support computational investigations related to Acemoglu et al. (2011) and Gale and Kariv (2003).
 
 ## Setup
 
@@ -31,14 +36,39 @@ python -m simulations.smoke_test
 
 This checks package imports, graph generation, the sequential engine, and the result container without starting any large experiment.
 
+## Models and Networks
+
+`SequentialGame` supports the following graph types:
+
+| Graph type | Description | Signal types |
+| --- | --- | --- |
+| `NEO` | Non-expanding observations with `k` influential early agents | bounded, unbounded |
+| `ER` | Sequential Erdős-Rényi graph with predecessor edge probability `p` | bounded, unbounded |
+| `complete` | Each agent observes every predecessor | bounded, unbounded |
+| `previous` | Each agent observes only the immediate predecessor | bounded, unbounded |
+| `BS` | Each agent observes a bounded random sample of predecessors | bounded, unbounded |
+
+`RepeatedGame` supports `complete_connected`, `connected_star`, and `dictator_star`. The repeated model currently uses unbounded Gaussian signals; bounded signals are rejected by the validation layer.
+
 ## Running Experiments
 
-Run experiment commands from the repository root. The `LS_*.py` modules contain the current large sequential-learning entry points. They use the configurations in `simulations/experiment_configs.py` and write CSV output under `data/`.
+Run experiment commands from the repository root. The `LS_*.py` modules contain the large sequential-learning entry points. They use configurations from `simulations/experiment_configs.py` and write CSV output under `data/`.
 
 For example:
 
 ```text
 python -m simulations.LS_theorem_3i
+```
+
+The current sequential entry points are:
+
+```text
+python -m simulations.LS_ER_bounded
+python -m simulations.LS_theorem_1
+python -m simulations.LS_theorem_2
+python -m simulations.LS_theorem_3i
+python -m simulations.LS_theorem_3ii
+python -m simulations.LS_theorem_3iii
 ```
 
 Review the agent count, run count, and output path before launching a long job, especially when transferring a run to HPC.
@@ -68,8 +98,19 @@ result = run_sim(
 - Newly generated CSV and image files are ignored by Git. Preserve published outputs together with their exact inputs and commit when archiving a result.
 - The notebooks are exploratory and aligned with the current Python API. The Python modules and the smoke test are the canonical runnable path.
 
+## Project Layout
+
+- `simulations/game_engine.py`: sequential and repeated game engines plus belief updating.
+- `simulations/networks.py`: graph generators for both models.
+- `simulations/run_experiments.py`: reusable single-run and parameter-sweep helpers.
+- `simulations/experiment_configs.py`: long-running experiment definitions.
+- `simulations/LS_*.py`: command-line experiment entry points.
+- `data/`: tracked example results and the default destination for generated output.
+- `*_testing.ipynb` and `RLM_testing.ipynb`: exploratory analysis and development notebooks.
+
 ## Current Scope
 
-- The sequential-learning workflow is the currently validated simulation path.
-- Monte Carlo belief updating is an approximation for the stochastic ER and bounded-sample network models.
-- Repeated-learning work is ongoing. Complete-graph experiments are under development, and star-graph belief logic has not yet been implemented.
+- Sequential experiments cover non-expanding, Erdős-Rényi, complete, immediate-predecessor, and bounded-sample networks.
+- Monte Carlo belief updating approximates social beliefs for the stochastic ER and bounded-sample sequential graphs.
+- Repeated experiments include exact belief updates for the supported complete and star network variants.
+- Research and exploratory notebooks may contain work that is not yet exposed through a packaged experiment entry point.
