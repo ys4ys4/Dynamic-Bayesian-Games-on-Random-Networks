@@ -1,7 +1,8 @@
 import numpy as np
 import networkx as nx
+import itertools
 from scipy.stats import norm
-from scipy.special import log_ndtr
+from scipy.special import log_ndtr, logsumexp
 
 
 class SequentialGame:
@@ -32,7 +33,8 @@ class SequentialGame:
                  k=None,
                  p=None,
                  sample=None,
-                 M=None
+                 M=None,
+                 **kwargs
                  ):
         self.graph = graph
         self.graph_type = graph_type
@@ -419,7 +421,10 @@ class RepeatedGame:
         self.graph_type = graph_type
         self.N = len(graph.nodes)
         self.rng = np.random.default_rng() if rng is None else rng
-        self.max_T = 100
+        if self.graph_type == "connected_star":
+            self.max_T = 7
+        else:
+            self.max_T = 100
 
         self.true_state = self.rng.choice([0, 1])
 
@@ -452,15 +457,17 @@ class RepeatedGame:
     def play(self):
         signals = self.draw_signals()
         ans = self.belief_engine.priv_llrs(signals)
+        ans[0] = -ans[0]
 
         for t in range(self.max_T):
-            bnts = self.belief_engine.soc_llrs()
+            bnts = self.belief_engine.soc_llrs(t, self.history)
             actions = self.decide(ans, bnts)
             self.history.append(actions)
 
-            if t and np.array_equal(self.history[t], self.history[t-1]):
+            if np.all(actions == actions[0]):
                 self.converged_at_t = t
                 break
+
             self.belief_engine.update_beliefs(bnts, actions)
 
         self.played = True
@@ -491,35 +498,243 @@ class RepeatedGame:
 
 
 class RepeatedBeliefEngine:
+    """
+    Creates a belief engine for repeated games.
+    For Complete and Dictator Star graphs: uses exact global bounds updating.
+    For Connected Star graphs: uses exact closed-form dynamic programming to
+    perfectly marginalize over the hidden universes (Exact PBU).
+    """
     def __init__(self, graph, graph_type, N):
         self.adj_matrix = nx.to_scipy_sparse_array(graph, format='csr').tocsr()
         self.graph_type = graph_type
         self.N = N
+
         self.lbs = np.full(self.N, -np.inf)
         self.ubs = np.full(self.N, np.inf)
         self.contribs = np.zeros(self.N)
 
+        # caches for exact combinatorial marginalisation on connected star
+        if self.graph_type == "connected_star":
+            self.edge_cache = {}
+            self.hub_cache = {}
+            self.edge_bounds_cache = {}
+
     def priv_llrs(self, signals):
         return 2 * signals
 
-    def soc_llrs(self):
+    def soc_llrs(self, t, history):
         if self.graph_type == "complete_connected":
-            total_soc_llr = np.sum(self.contribs)
-            return total_soc_llr - self.contribs
+            return self.adj_matrix.dot(self.contribs)
+
+        elif self.graph_type == "dictator_star":
+            return self.adj_matrix.dot(self.contribs)
+
+        elif self.graph_type == "connected_star":
+            bnts = np.zeros(self.N)
+            if t == 0:
+                return bnts
+
+            hist_matrix = np.array(history)
+            H_h = tuple(hist_matrix[:, 0])
+
+            # hub sees all edges: sum of their exact LLRs at end of t-1
+            hub_bnt = 0.0
+            hub_hist_for_edges = H_h[:t-1] if t >= 1 else ()
+            for i in range(1, self.N):
+                H_i = tuple(hist_matrix[:, i])
+                hub_bnt += self._get_edge_llr(H_i, hub_hist_for_edges)
+            bnts[0] = hub_bnt
+
+            # each edge sees hub: subjective hub LLR from that edge's pov
+            for i in range(1, self.N):
+                H_i = tuple(hist_matrix[:, i])
+                bnts[i] = self._get_hub_llr(H_i, H_h)
+
+            return bnts
+
         return np.zeros(self.N)
 
     def update_beliefs(self, bnts, actions):
-        if self.graph_type == "complete_connected":
-            for agent in range(self.N):
-                threshold = -bnts[agent]/2
-                if actions[agent]:
-                    self.ubs[agent] = min(self.ubs[agent], threshold)
+        # global bounds updating if not connected star
+        if self.graph_type in ["complete_connected", "dictator_star"]:
+            thresholds = -bnts / 2.0
+            self.ubs = np.where(actions == 1, np.minimum(self.ubs, thresholds),
+                                self.ubs)
+            self.lbs = np.where(actions == 0, np.maximum(self.lbs, thresholds),
+                                self.lbs)
+
+            p_ts0 = norm.cdf(self.ubs - 1) - norm.cdf(self.lbs - 1)
+            p_ts1 = norm.cdf(self.ubs + 1) - norm.cdf(self.lbs + 1)
+
+            p_ts0 = np.clip(p_ts0, 1e-15, 1.0)
+            p_ts1 = np.clip(p_ts1, 1e-15, 1.0)
+
+            self.contribs = np.log(p_ts0 / p_ts1)
+
+    # ---------------------------------------------------------
+    # EXACT CONNECTED STAR MARGINALIZATION METHODS
+    # ---------------------------------------------------------
+
+    def _get_edge_bounds(self, H_s, H_h):
+        """
+        Calculates exact bounds for a edge.
+        H_s: edge history of length k
+        H_h: Hub history of length k-1 (the history that caused H_s)
+        """
+        k = len(H_s)
+        if k == 0:
+            return -np.inf, np.inf
+
+        state = (H_s, H_h)
+        if state in self.edge_bounds_cache:
+            return self.edge_bounds_cache[state]
+
+        prev_H_s = H_s[:-1]
+        prev_H_h = H_h[:-1] if k - 1 > 0 else ()
+
+        L, U = self._get_edge_bounds(prev_H_s, prev_H_h)
+
+        # threshold for the kth action which
+        # depends on subjective hub belief exactly before taking it
+        bnt = self._get_hub_llr(prev_H_s, H_h)
+        threshold = -bnt / 2.0
+
+        action = H_s[-1]
+        if action == 0:
+            L = max(L, threshold)
+        else:
+            U = min(U, threshold)
+
+        self.edge_bounds_cache[state] = (L, U)
+        return L, U
+
+    def _get_edge_llr(self, H_s, H_h):
+        """
+        Exact LLR contribution of a edge.
+        H_s: edge history of length k
+        H_h: Hub history of length k-1
+        """
+        k = len(H_s)
+        if k == 0:
+            return 0.0
+
+        state = (H_s, H_h)
+        if state in self.edge_cache:
+            return self.edge_cache[state]
+
+        L, U = self._get_edge_bounds(H_s, H_h)
+        log_p0 = self._log_gaussian_interval_mass(L, U, 1)
+        log_p1 = self._log_gaussian_interval_mass(L, U, -1)
+
+        if np.isneginf(log_p0) and np.isneginf(log_p1):
+            return 0.0
+
+        llr = log_p0 - log_p1
+        self.edge_cache[state] = llr
+        return llr
+
+    @staticmethod
+    def _log_gaussian_interval_mass(lower, upper, mean):
+        if upper <= lower:
+            return -np.inf
+
+        lower -= mean
+        upper -= mean
+        if lower >= 0:
+            log_upper = log_ndtr(-upper)
+            log_lower = log_ndtr(-lower)
+        elif upper <= 0:
+            log_upper = log_ndtr(upper)
+            log_lower = log_ndtr(lower)
+        else:
+            log_upper = log_ndtr(upper)
+            log_lower = log_ndtr(lower)
+        log_mass, sign = logsumexp(
+            [log_upper, log_lower],
+            b=[-1.0, 1.0] if lower >= 0 else [1.0, -1.0],
+            return_sign=True,
+        )
+        return log_mass if sign > 0 else -np.inf
+
+    def _get_hub_llr(self, H_s, H_h):
+        """
+        Exact LLR of the Hub from the subjective perspective of a edge.
+        H_s: edge's own history of length k
+        H_h: Hub history of length k
+        """
+        k = len(H_h)
+        if k == 0:
+            return 0.0
+
+        state = (H_s, H_h)
+        if state in self.hub_cache:
+            return self.hub_cache[state]
+
+        log_totals_0 = []
+        log_totals_1 = []
+
+        # no. of actions taken by unseen edges up to this point
+        num_unseen_actions = k - 1
+        # hub history needed to evaluate an unseen
+        # edge's history of length k-1 is length k-2
+        hub_hist_for_unseen = H_h[:k-2] if k >= 2 else ()
+
+        all_possible_edge_histories =\
+            list(itertools.product([0, 1], repeat=num_unseen_actions))
+
+        for other_histories in itertools.product(all_possible_edge_histories,
+                                                 repeat=self.N - 2):
+            log_prob_combo_0 = 0.0
+            log_prob_combo_1 = 0.0
+
+            # 1. what is prob of this specific unseen universe occurring?
+            for H_other in other_histories:
+                L_other, U_other = self._get_edge_bounds(H_other,
+                                                         hub_hist_for_unseen)
+                log_p0 = self._log_gaussian_interval_mass(L_other, U_other, 1)
+                log_p1 = self._log_gaussian_interval_mass(L_other, U_other, -1)
+                log_prob_combo_0 += log_p0
+                log_prob_combo_1 += log_p1
+
+            if (np.isneginf(log_prob_combo_0)
+                    and np.isneginf(log_prob_combo_1)):
+                continue
+
+            # 2. reconstruct hub's exact threshold path in specific universe
+            L_hub, U_hub = -np.inf, np.inf
+            for tau in range(k):
+                action = H_h[tau]
+
+                # hub belief at time tau depends on edges' histories up to tau
+                H_s_tau = H_s[:tau]
+                H_h_tau_minus_1 = H_h[:tau-1] if tau >= 1 else ()
+
+                sum_llrs = self._get_edge_llr(H_s_tau, H_h_tau_minus_1)
+
+                for H_other in other_histories:
+                    H_other_tau = H_other[:tau]
+                    sum_llrs += self._get_edge_llr(H_other_tau,
+                                                   H_h_tau_minus_1)
+
+                threshold = -sum_llrs / 2.0
+                if action == 0:
+                    L_hub = max(L_hub, threshold)
                 else:
-                    self.lbs[agent] = max(self.lbs[agent], threshold)
-                p_ts0 = norm.cdf(self.ubs[agent] - 1)\
-                    - norm.cdf(self.lbs[agent] - 1)
-                p_ts1 = norm.cdf(self.ubs[agent] + 1)\
-                    - norm.cdf(self.lbs[agent] + 1)
-                p_ts0 = np.clip(p_ts0, 1e-15, 1)
-                p_ts1 = np.clip(p_ts1, 1e-15, 1)
-                self.contribs[agent] = np.log((p_ts0/p_ts1))
+                    U_hub = min(U_hub, threshold)
+
+            # 3. what is prob that hub played H_h in this specific universe?
+            log_hub_p0 = self._log_gaussian_interval_mass(L_hub, U_hub, 1)
+            log_hub_p1 = self._log_gaussian_interval_mass(L_hub, U_hub, -1)
+
+            # 4. integrate total weighted probability
+            if not np.isneginf(log_hub_p0):
+                log_totals_0.append(log_prob_combo_0 + log_hub_p0)
+            if not np.isneginf(log_hub_p1):
+                log_totals_1.append(log_prob_combo_1 + log_hub_p1)
+
+        if not log_totals_0 and not log_totals_1:
+            return 0.0
+
+        llr = logsumexp(log_totals_0) - logsumexp(log_totals_1)
+        self.hub_cache[state] = llr
+        return llr

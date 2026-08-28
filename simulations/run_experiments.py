@@ -11,7 +11,8 @@ from simulations.networks import (
     gen_prev,
     gen_bounded_sample,
     gen_complete_connected,
-    gen_star
+    gen_connected_star,
+    gen_dictator_star
 )
 
 
@@ -148,8 +149,7 @@ def _validate_run_sim_inputs(
     q,
     k,
     p,
-    sample,
-    dictator
+    sample
 ):
     """
     validates inputs for run_sim function
@@ -195,7 +195,9 @@ def _validate_run_sim_inputs(
                                     less than {agents}.")
 
     elif game_type is RepeatedGame:
-        valid_rlm_graph_types = {"complete_connected", "star"}
+        valid_rlm_graph_types = {"complete_connected",
+                                 "connected_star",
+                                 "dictator_star"}
         if graph_type not in valid_rlm_graph_types:
             raise ValueError(
                 "Invalid graph_type provided for RepeatedGame."
@@ -206,8 +208,6 @@ def _validate_run_sim_inputs(
             raise ValueError(
                 "Bounded signals are not supported for RepeatedGame."
             )
-        if not isinstance(dictator, bool):
-            raise ValueError("dictator must be a boolean value.")
 
     else:
         raise ValueError(
@@ -228,8 +228,7 @@ def _get_graph_generator(
     rng=None,
     k=1,
     p=0.05,
-    sample=10,
-    dictator=False
+    sample=10
 ):
     """
     returns a graph generator function based on the specified graph_type
@@ -246,8 +245,10 @@ def _get_graph_generator(
         return lambda: gen_bounded_sample(agents, sample, rng=rng)
     if graph_type == "complete_connected":
         return lambda: gen_complete_connected(agents)
-    if graph_type == "star":
-        return lambda: gen_star(agents, dictator=dictator)
+    if graph_type == "connected_star":
+        return lambda: gen_connected_star(agents)
+    if graph_type == "dictator_star":
+        return lambda: gen_dictator_star(agents)
     raise ValueError("Invalid graph_type provided.")
 
 
@@ -264,8 +265,7 @@ def run_sim(
     k=1,
     p=0.05,
     sample=10,
-    M=None,
-    dictator=False
+    M=None
 ):
     """
     runs simulation with specified parameters -
@@ -280,7 +280,6 @@ def run_sim(
     p: probability of connection for ER graphs (ignored for other graphs)
     sample: number of predecessors for BS graphs (ignored for other graphs)
     M: number of simulations for Monte Carlo estimation (optional)
-    dictator: boolean indicating if the hub is a dictator in star graphs
     returns a SimulationResult
     """
     _validate_run_sim_inputs(
@@ -292,8 +291,7 @@ def run_sim(
         q=q,
         k=k,
         p=p,
-        sample=sample,
-        dictator=dictator
+        sample=sample
     )
 
     rng = np.random.default_rng(seed)
@@ -318,8 +316,6 @@ def run_sim(
         params["p"] = p
     elif graph_type == "BS":
         params["sample"] = sample
-    elif graph_type == "star":
-        params["dictator"] = dictator
 
     gen_graph = _get_graph_generator(
         graph_type,
@@ -327,8 +323,7 @@ def run_sim(
         rng=rng,
         k=k,
         p=p,
-        sample=sample,
-        dictator=dictator
+        sample=sample
     )
 
     for _ in range(runs):

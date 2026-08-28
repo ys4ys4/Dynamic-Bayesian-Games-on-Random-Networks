@@ -130,18 +130,28 @@ def gen_complete_connected(N):
 
 # star
 
-def gen_star(N, dictator=False):
+def gen_connected_star(N):
     """
-    RLM star graph
+    RLM connected star graph
     agent 0 is the hub (c.f. EIA)
     agents 1 to N-1 are the periphery
-    if not dictator (connected): periphery sees hub, hub sees periphery.
-    if dictator (disconnected): periphery sees hub, hub sees no one.
     """
     graph = nx.DiGraph()
     graph.add_nodes_from(range(N))
     for i in range(1, N):
         graph.add_edge(i, 0)
-        if not dictator:
-            graph.add_edge(0, i)
+        graph.add_edge(0, i)
+    return graph
+
+
+def gen_dictator_star(N):
+    """
+    RLM dictator star graph
+    agent 0 is the hub (c.f. EIA)
+    agents 1 to N-1 are the periphery
+    """
+    graph = nx.DiGraph()
+    graph.add_nodes_from(range(N))
+    for i in range(1, N):
+        graph.add_edge(i, 0)
     return graph
