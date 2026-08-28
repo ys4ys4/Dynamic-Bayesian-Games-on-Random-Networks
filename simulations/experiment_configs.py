@@ -13,16 +13,18 @@ from simulations.run_experiments import (
 @dataclass(frozen=True)
 class ExperimentConfig:
     name: str
+    game_type: str
     graph_type: str
-    signal_type: str
     agents: int
     runs: int
     seed_base: int
-    loop_values: np.ndarray
+    signal_type: str
     loop_param_name: str
+    loop_values: np.ndarray
     result_column_name: str
     reducer: object
     progress_callback: object
+    extra_params: dict
     output_csv_path: str
     plot_path: str | None = None
     plot_title: str | None = None
@@ -39,13 +41,14 @@ class ExperimentConfig:
 # MC estimate (tbd)
 ER_BOUNDED_CONFIG = ExperimentConfig(
     name="ER bounded",
+    game_type="SequentialGame",
     graph_type="ER",
-    signal_type="bounded",
     agents=1000,
     runs=1000,
     seed_base=42,
-    loop_values=np.linspace(0.02, 1.0, 50),
+    signal_type="bounded",
     loop_param_name="p",
+    loop_values=np.linspace(0.02, 1.0, 50),
     result_column_name="p_value",
     reducer=summarise_cascade_metrics,
     output_csv_path="data/ER_bounded.csv",
@@ -53,6 +56,7 @@ ER_BOUNDED_CONFIG = ExperimentConfig(
         param="p",
         value_key="p_value"
     ),
+    extra_params={},
     plot_path="data/ER_bounded_summary.png",
     plot_title="ER Bounded Summary",
     plot_xlabel="Probability of node connection (p)",
@@ -64,13 +68,14 @@ ER_BOUNDED_CONFIG = ExperimentConfig(
 # estimated time = 12.25 hours with 1000 runs, 5000 agents, and 50 k vals
 THEOREM_1_CONFIG = ExperimentConfig(
     name="theorem 1",
+    game_type="SequentialGame",
     graph_type="NEO",
-    signal_type="unbounded",
     agents=5000,
     runs=1000,
     seed_base=42,
-    loop_values=np.arange(1, 51),
+    signal_type="unbounded",
     loop_param_name="k",
+    loop_values=np.arange(1, 51),
     result_column_name="EIAs",
     reducer=collect_final_accuracies,
     output_csv_path="data/Theorem_1_NEO_unbounded.csv",
@@ -79,6 +84,7 @@ THEOREM_1_CONFIG = ExperimentConfig(
         value_key="EIAs",
         value_format="d"
     ),
+    extra_params={},
     plot_path="data/Theorem_1_NEO_unbounded_heatmap.png",
     plot_title="Theorem 1 (Non-Expanding Observations with Unbounded Signals)",
     plot_xlabel="Number of Excessively Influential Agents (k)",
@@ -94,13 +100,14 @@ THEOREM_1_CONFIG = ExperimentConfig(
 # MC estimate (tbd)
 THEOREM_2_CONFIG = ExperimentConfig(
     name="theorem 2",
+    game_type="SequentialGame",
     graph_type="ER",
-    signal_type="unbounded",
     agents=1000,
     runs=100,
     seed_base=42,
-    loop_values=np.linspace(0.1, 1.0, 10),
+    signal_type="unbounded",
     loop_param_name="p",
+    loop_values=np.linspace(0.1, 1.0, 10),
     result_column_name="p_value",
     reducer=summarise_cascade_metrics,
     output_csv_path="data/Theorem_2_ER_unbounded.csv",
@@ -108,6 +115,7 @@ THEOREM_2_CONFIG = ExperimentConfig(
         param="p",
         value_key="p_value"
     ),
+    extra_params={"M": 1000},
     plot_path="data/Theorem_2_ER_unbounded_summary.png",
     plot_title="Theorem 2 (Erdös-Rényi Graphs with Unbounded Signals)",
     plot_xlabel="Probability of node connection (p)",
@@ -119,13 +127,14 @@ THEOREM_2_CONFIG = ExperimentConfig(
 # estimated time = 6.89 hours with 1000 runs, 1000 agents, and 19 q vals
 THEOREM_3I_CONFIG = ExperimentConfig(
     name="theorem 3i",
+    game_type="SequentialGame",
     graph_type="complete",
-    signal_type="bounded",
     agents=1000,
     runs=1000,
     seed_base=42,
-    loop_values=np.linspace(0.05, 0.95, 19),
+    signal_type="bounded",
     loop_param_name="q",
+    loop_values=np.linspace(0.05, 0.95, 19),
     result_column_name="signal_accuracy",
     reducer=summarise_cascade_metrics,
     output_csv_path="data/Theorem_3i_complete_bounded.csv",
@@ -133,6 +142,7 @@ THEOREM_3I_CONFIG = ExperimentConfig(
         param="q",
         value_key="signal_accuracy"
     ),
+    extra_params={},
     plot_path="data/Theorem_3i_complete_bounded_summary.png",
     plot_title="Theorem 3i (Complete Graphs with Bounded Signals)",
     plot_xlabel="Signal Accuracy",
@@ -144,13 +154,14 @@ THEOREM_3I_CONFIG = ExperimentConfig(
 # estimated time = 1.43 hours with 1000 runs, 1000 agents, and 19 q vals
 THEOREM_3II_CONFIG = ExperimentConfig(
     name="theorem 3ii",
+    game_type="SequentialGame",
     graph_type="previous",
-    signal_type="bounded",
     agents=5000,
     runs=1000,
     seed_base=42,
-    loop_values=np.linspace(0.05, 0.95, 19),
+    signal_type="bounded",
     loop_param_name="q",
+    loop_values=np.linspace(0.05, 0.95, 19),
     result_column_name="signal_accuracy",
     reducer=collect_final_accuracies,
     output_csv_path="data/Theorem_3ii_previous_bounded.csv",
@@ -158,6 +169,7 @@ THEOREM_3II_CONFIG = ExperimentConfig(
         param="q",
         value_key="signal_accuracy"
     ),
+    extra_params={},
     plot_path="data/Theorem_3ii_previous_bounded_heatmap.png",
     plot_title="Theorem 3ii (Dipath Graphs with Bounded Signals)",
     plot_xlabel="Signal Accuracy (q)",
@@ -173,13 +185,14 @@ THEOREM_3II_CONFIG = ExperimentConfig(
 # MC estimate (tbd)
 THEOREM_3III_CONFIG = ExperimentConfig(
     name="theorem 3iii",
+    game_type="SequentialGame",
     graph_type="BS",
-    signal_type="bounded",
     agents=10000,
     runs=1000,
     seed_base=42,
-    loop_values=np.linspace(0.05, 0.95, 19),
+    signal_type="bounded",
     loop_param_name="q",
+    loop_values=np.linspace(0.05, 0.95, 19),
     result_column_name="signal_accuracy",
     reducer=collect_final_accuracies,
     output_csv_path="data/Theorem_3iii_BS_bounded.csv",
@@ -187,6 +200,7 @@ THEOREM_3III_CONFIG = ExperimentConfig(
         param="q",
         value_key="signal_accuracy"
     ),
+    extra_params={"sample": 10, "M": 1000},
     plot_path="data/Theorem_3iii_previous_bounded_heatmap.png",
     plot_title="Theorem 3iii (Bounded Sample Graphs with Bounded Signals)",
     plot_xlabel="Signal Accuracy (q)",

@@ -1,12 +1,13 @@
-# Project Overview: Dynamic Bayesian Learning on Random Networks
+# Project Overview: Dynamic Bayesian Learning on Networks
 
 ## 1. Core Research Objective
-Studying asymptotic learning failures caused by high-influence sequential network topologies (Acemoglu et al., 2011) and the conditions that lead to convergence under repeated Bayesian interaction (Gale & Kariv, 2003). The project aims to synthesise setups and results from both papers as well as empirical computational data from simulations into a rigorous 15-20 page academic manuscript.
-The computer simulations will involve verifications of the results from the two papers, as well as exploration of some new conjectures.
+This project studies how network structure affects information aggregation in Bayesian social-learning models. It combines sequential-learning experiments inspired by Acemoglu et al. (2011) with repeated-interaction experiments inspired by Gale and Kariv (2003).
+
+The computational objective is to reproduce relevant theoretical phenomena, compare learning outcomes across network topologies, and use simulation evidence to explore new conjectures. The longer-term research output is a rigorous academic report combining formal setups, theoretical results, and empirical simulation results.
 
 ## 2. Mathematical Framework & Game Mechanics
 *   **State Space:** True state $\theta \in \{0, 1\}$, with prior $\mathbb{P}(\theta=0) = \mathbb{P}(\theta=1) = 1/2$.
-*   **Players:** Countably infinite sequence of agents, $n \in \mathbb{N}$, deciding sequentially or interacting repeatedly.
+*   **Players:** A finite simulated population of $N$ agents, representing an initial segment of an infinite-agent model where appropriate.
 *   **Actions:** Current focus is a binary choice $x_n \in \{0, 1\}$. Future parameter sweeps may test extending the action space to a ternary "hesitation" choice $\{0, 0.5, 1\}$.
 *   **Signals & Beliefs:** Agent $n$ receives private signal $s_n \sim \mathbb{F}_\theta$. Measures $\mathbb{F}_0$ and $\mathbb{F}_1$ are mutually absolutely continuous to ensure no signal is fully revealing ($L(s) \in (0, \infty)$ almost surely). 
     **Computer Simulation Signal Structures:**
@@ -15,14 +16,17 @@ The computer simulations will involve verifications of the results from the two 
 *   **Updating Rules:** 
     *   *Perfect Bayesian Updating (PBU):* Used for strictly nested topologies (Complete graphs) and Markovian chains (Immediate Predecessor graphs).
     *   *Naïve Bayesian (LLR Summation):* Used as a boundedly rational heuristic to avoid NP-hard complexity on general DAGs, though it introduces correlation neglect ("phantom certainty").
-    *   *Monte Carlo Belief Estimator:* A "Smart Agent, Naïve World" particle-filtering approach used to approximate PBU on complex graphs by simulating hypothetical realities.
+    *   *Monte Carlo Belief Estimator:* A weighted hypothetical-world approximation used for stochastic ER and bounded-sample sequential graphs.
 
 ## 3. Network Topologies
 Agents observe a neighborhood $B(n)$ governed by probability distribution $\mathbb{Q}_n$. Modeled as Directed Acyclic Graphs (DAGs):
-*   **Non-Expanding Observations (NEO):** "Royal Family" graph where the first $k$ agents are excessively influential, leading to cascades.
+*   **Non-Expanding Observations (NEO):** A "royal family" graph where the first $k$ agents are excessively influential, allowing information cascades.
 *   **Expanding / Stochastic:** Erdős-Rényi / Gilbert $G(N,p)$ where agents see predecessors with probability $p$. 
 *   **Deterministic:** Complete graph (sees everyone), Immediate Predecessor (sees $n-1$ only).
-*   **Complex/Stress-Test Graphs:** Uniform Attachment, Bounded Sample, Barabási-Albert (Scale-Free hubs), and Stochastic Block Models (Echo Chambers).
+*   **Bounded Sample:** Each agent observes a fixed-size random sample of predecessors.
+*   **Repeated-learning graphs:** Complete-connected, connected-star, and dictator-star networks.
+
+Uniform attachment, Barabási-Albert, and stochastic block model graphs are possible future extensions but are not currently exposed by the graph generator API.
 
 ## 4. Standard Notation Guide
 *   $N$: Total number of agents/nodes in simulation.
@@ -35,15 +39,15 @@ Agents observe a neighborhood $B(n)$ governed by probability distribution $\math
 
 ## 5. Tech Stack & Code Architecture
 *   **Stack:** Python, NetworkX (graphs), NumPy (vectorisation/math), SciPy (Gaussian CDFs), Pandas (data logging). Version control via Git/GitHub.
-*   **Centralised Game-Manager Pattern:** The `SequentialGame` class acts as the omniscient environment, evaluating graph topology, tracking history, and dispensing the social belief ($L_n$). 
-*   **Defensive Programming:** Tie-breaking relies on floating-point stability checks (`np.isclose` with `atol=1e-8`) to accurately capture weak information cascades.
+*   **Game engines:** `SequentialGame` manages one-pass play and `RepeatedGame` manages multi-round play; both track actions, accuracy, and convergence metrics.
+*   **Belief engines:** `SequentialBeliefEngine` and `RepeatedBeliefEngine` separate posterior calculations from game mechanics. Exact fast paths are used for supported structured graphs, while Monte Carlo estimation is used where exact marginalisation is expensive.
+*   **Reproducibility:** A single NumPy random generator is threaded through graph generation and gameplay when a seed is supplied.
+*   **Numerical stability:** Tie-breaking and likelihood calculations use floating-point safeguards, including `np.isclose` and clipped probabilities where needed.
 
 ## 6. Current Project Status
-*   **Completed:** Sequential baseline established. Acemoglu's Theorems 1, 2, and 3 empirically verified via Python simulations. Floating-point tie-breaking logic successfully isolates weak cascades.
-*   **Completed:** PBU mathematical fast-paths mathematically formalised and accurately implemented for Complete and Immediate-Predecessor graphs, with underflow risk mitigated.
-*   **Next Steps:** 
-    1. 
-    **Later (after work on Acemoglu paper is complete):**
-    1. Investigate the relationship formally between signal accuracy and final game accuracy on complete graph (now that we have exact PBU) and compare (expecting the same) with ER graph where p=1.
-    2. Expand the codebase to model Gale & Kariv repeated interactions across varying network topologies to measure the speed-versus-accuracy efficiency frontier.
-    3. Complete the literature review in the LaTeX draft (Chapter 3 on Repeated Interaction).
+*   **Implemented:** Sequential simulations for NEO, ER, complete, immediate-predecessor, and bounded-sample graphs.
+*   **Implemented:** Exact structured belief updates for complete and immediate-predecessor sequential graphs.
+*   **Implemented:** Monte Carlo social-belief approximation for ER and bounded-sample sequential graphs.
+*   **Implemented:** Repeated simulations for complete-connected, connected-star, and dictator-star networks with unbounded Gaussian signals, including exact belief logic for the supported topologies.
+*   **Available entry points:** The `LS_*.py` modules run the configured large sequential experiments; `run_sim` is the reusable API for smaller sequential or repeated runs.
+*   **Next steps:** Compare sequential and repeated outcomes under shared network structures, expand parameter sweeps, and investigate the speed-versus-accuracy trade-off across topologies.

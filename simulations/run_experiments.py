@@ -3,13 +3,16 @@ from dataclasses import dataclass
 import pandas as pd
 import numpy as np
 
-from simulations.game_engine import SequentialGame
+from simulations.game_engine import SequentialGame, RepeatedGame
 from simulations.networks import (
     gen_neog,
     gen_erg,
     gen_complete,
     gen_prev,
-    gen_bounded_sample
+    gen_bounded_sample,
+    gen_complete_connected,
+    gen_connected_star,
+    gen_dictator_star
 )
 
 
@@ -138,10 +141,11 @@ def make_cascade_progress_logger(param, value_key):
 # simulation helper functions
 
 def _validate_run_sim_inputs(
+    game_type,
     graph_type,
-    signal_type,
     agents,
     runs,
+    signal_type,
     q,
     k,
     p,
@@ -150,19 +154,65 @@ def _validate_run_sim_inputs(
     """
     validates inputs for run_sim function
     """
-    valid_graph_types = {"NEO", "ER", "complete", "previous", "BS"}
-    valid_signal_types = {"bounded", "unbounded"}
+    if game_type is SequentialGame:
+        valid_slm_graph_types = {"NEO", "ER", "complete", "previous", "BS"}
+        valid_signal_types = {"bounded", "unbounded"}
 
-    if graph_type not in valid_graph_types:
-        raise ValueError(
-            "Invalid graph_type provided. Expected one of: "
-            f"{sorted(valid_graph_types)}."
-        )
+        if graph_type not in valid_slm_graph_types:
+            raise ValueError(
+                "Invalid graph_type provided for SequentialGame."
+                "Expected one of: "
+                f"{sorted(valid_slm_graph_types)}."
+            )
 
-    if signal_type not in valid_signal_types:
+        if signal_type not in valid_signal_types:
+            raise ValueError(
+                "Invalid signal_type provided for SequentialGame."
+                "Expected one of: "
+                f"{sorted(valid_signal_types)}."
+            )
+
+        if signal_type == "bounded":
+            if not isinstance(q, numbers.Real) or not 0 < q < 1:
+                raise ValueError("q must be a real number\
+                                    strictly between 0 and 1.")
+
+        if graph_type == "NEO":
+            if not isinstance(k, numbers.Integral) or k <= 0 or k > agents:
+                raise ValueError(f"k (EIAs) must be a positive integer\
+                                less than {agents}.")
+
+        if graph_type == "ER" and not 0 <= p <= 1:
+            raise ValueError("p must be between 0 and 1 for ER graphs.")
+
+        if graph_type == "BS":
+            if (
+                not isinstance(sample, numbers.Integral)
+                or sample <= 0
+                or sample > agents
+            ):
+                raise ValueError(f"Sample size must be a positive integer\
+                                    less than {agents}.")
+
+    elif game_type is RepeatedGame:
+        valid_rlm_graph_types = {"complete_connected",
+                                 "connected_star",
+                                 "dictator_star"}
+        if graph_type not in valid_rlm_graph_types:
+            raise ValueError(
+                "Invalid graph_type provided for RepeatedGame."
+                "Expected one of: "
+                f"{sorted(valid_rlm_graph_types)}."
+            )
+        if signal_type == "bounded":
+            raise ValueError(
+                "Bounded signals are not supported for RepeatedGame."
+            )
+
+    else:
         raise ValueError(
-            "Invalid signal_type provided. Expected one of: "
-            f"{sorted(valid_signal_types)}."
+            "Invalid game_type provided."
+            "Expected SequentialGame or RepeatedGame."
         )
 
     if not isinstance(agents, numbers.Integral) or agents <= 0:
@@ -170,28 +220,6 @@ def _validate_run_sim_inputs(
 
     if not isinstance(runs, numbers.Integral) or runs <= 0:
         raise ValueError("runs must be a positive integer.")
-
-    if signal_type == "bounded":
-        if not isinstance(q, numbers.Real) or not 0 < q < 1:
-            raise ValueError("q must be a real number\
-                              strictly between 0 and 1.")
-
-    if graph_type == "NEO":
-        if not isinstance(k, numbers.Integral) or k <= 0 or k > agents:
-            raise ValueError(f"k (EIAs) must be a positive integer\
-                            less than {agents}.")
-
-    if graph_type == "ER" and not 0 <= p <= 1:
-        raise ValueError("p must be between 0 and 1 for ER graphs.")
-
-    if graph_type == "BS":
-        if (
-            not isinstance(sample, numbers.Integral)
-            or sample <= 0
-            or sample > agents
-        ):
-            raise ValueError(f"Sample size must be a positive integer\
-                              less than {agents}.")
 
 
 def _get_graph_generator(
@@ -215,18 +243,24 @@ def _get_graph_generator(
         return lambda: gen_prev(agents)
     if graph_type == "BS":
         return lambda: gen_bounded_sample(agents, sample, rng=rng)
+    if graph_type == "complete_connected":
+        return lambda: gen_complete_connected(agents)
+    if graph_type == "connected_star":
+        return lambda: gen_connected_star(agents)
+    if graph_type == "dictator_star":
+        return lambda: gen_dictator_star(agents)
     raise ValueError("Invalid graph_type provided.")
 
 
 # simulation functions
 
 def run_sim(
+    game_type,
     graph_type,
-    signal_type,
-    game_type=SequentialGame,
     agents=1000,
     runs=5,
     seed=None,
+    signal_type="unbounded",
     q=0.8,
     k=1,
     p=0.05,
@@ -235,24 +269,25 @@ def run_sim(
 ):
     """
     runs simulation with specified parameters -
-    graph_type: type of graph to generate (NEO, ER, complete, previous, BS)
-    signal_type: type of signal to use (bounded, unbounded)
     game_type: class of the game to run
+    graph_type: type of graph to generate (NEO, ER, complete, previous, BS)
     agents: number of agents in the simulation
-    p: probability of connection for ER graphs (ignored for other graphs)
-    k: number of EIAs for NEO graphs (ignored for other graphs)
-    q: signal accuracy for bounded signals (ignored for unbounded signals)
     runs: number of simulation runs to perform
-    sample: number of predecessors for BS graphs (ignored for other graphs)
     seed: random seed for reproducibility
+    signal_type: type of signal to use (bounded, unbounded)
+    q: signal accuracy for bounded signals (ignored for unbounded signals)
+    k: number of EIAs for NEO graphs (ignored for other graphs)
+    p: probability of connection for ER graphs (ignored for other graphs)
+    sample: number of predecessors for BS graphs (ignored for other graphs)
     M: number of simulations for Monte Carlo estimation (optional)
     returns a SimulationResult
     """
     _validate_run_sim_inputs(
+        game_type=game_type,
         graph_type=graph_type,
-        signal_type=signal_type,
         agents=agents,
         runs=runs,
+        signal_type=signal_type,
         q=q,
         k=k,
         p=p,
@@ -264,11 +299,12 @@ def run_sim(
     running_accuracies = []
     convergence_metrics = []
     params = {
+        "game_type": game_type.__name__,
         "graph_type": graph_type,
-        "signal_type": signal_type,
         "agents": agents,
         "runs": runs,
-        "seed": seed
+        "seed": seed,
+        "signal_type": signal_type
     }
 
     if signal_type == "bounded":
@@ -294,8 +330,8 @@ def run_sim(
         graph = gen_graph()
         game = game_type(graph,
                          graph_type,
-                         signal_type,
                          rng=rng,
+                         signal_type=signal_type,
                          q=q,
                          k=k,
                          p=p,
@@ -315,13 +351,14 @@ def run_sim(
 
 def run_overnight_sim(
     *,
+    game_type,
     graph_type,
-    signal_type,
     agents,
     runs,
     seed_base=42,
-    loop_values,
+    signal_type="unbounded",
     loop_param_name,
+    loop_values,
     result_column_name=None,
     reducer=summarise_cascade_metrics,
     output_csv_path=None,
@@ -330,22 +367,27 @@ def run_overnight_sim(
 ):
     """
     runs a large simulation with specified parameters -
-    graph_type: type of graph to generate (NEO, ER, complete, previous, BS)
-    signal_type: type of signal to use (bounded, unbounded)
-    loop_values: list of values to loop over for specified parameter
-    loop_param_name: name of parameter to loop over (e.g., "p", "k", "q")
-    result_column_name: column to store loop parameter values in output CSV
-    runs: number of simulation runs to perform for each loop value
+    game_type: class of game to run
+    graph_type: type of graph to generate
     agents: number of agents in simulation
+    runs: number of simulation runs to perform for each loop value
     seed_base: base random seed for reproducibility
-    output_csv: path to save summary CSV
+    signal_type: type of signal to use (bounded, unbounded)
+    loop_param_name: name of parameter to loop over (e.g., "p", "k", "q")
+    loop_values: list of values to loop over for specified parameter
+    result_column_name: column to store loop parameter values in output CSV
     reducer: function to summarise convergence metrics
-    extra_params: dictionary of additional parameters to pass to run_sim
+    output_csv_path: path to save summary CSV
     progress_callback: function to log progress after each loop value
+    extra_params: dictionary of additional parameters to pass to run_sim
     returns a DataFrame with summary of results for each loop value
     """
 
-    extra_params = extra_params
+    if game_type == "SequentialGame":
+        game_type = SequentialGame
+    elif game_type == "RepeatedGame":
+        game_type = RepeatedGame
+
     result_column_name = result_column_name or loop_param_name
     output_csv_path = (
         output_csv_path
@@ -358,10 +400,11 @@ def run_overnight_sim(
 
     rows = []
     run_kwargs = {
+        "game_type": game_type,
         "graph_type": graph_type,
-        "signal_type": signal_type,
         "agents": agents,
         "runs": runs,
+        "signal_type": signal_type,
         **extra_params
     }
 
