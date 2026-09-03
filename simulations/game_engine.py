@@ -15,7 +15,7 @@ class SequentialGame:
     rng = random number generator for reproducibility
     k = number of royals
     p = probability of edge in ER graph
-    sample = number of neighbours to sample in BS graph
+    d = number of neighbours to d in BS graph
     M = number of Monte Carlo simulations for ER and BS graphs
 
     handles:
@@ -32,7 +32,7 @@ class SequentialGame:
                  q=None,
                  k=None,
                  p=None,
-                 sample=None,
+                 d=None,
                  M=None,
                  **kwargs
                  ):
@@ -44,7 +44,7 @@ class SequentialGame:
         self.q = q if signal_type == "bounded" else norm.cdf(1)
         self.k = k
         self.p = p
-        self.sample = sample
+        self.d = d
         self.M = M
 
         self.true_state = self.rng.choice([0, 1])
@@ -60,7 +60,7 @@ class SequentialGame:
             q=self.q,
             k=self.k,
             p=self.p,
-            sample=self.sample,
+            d=self.d,
             M=self.M
         )
 
@@ -147,7 +147,7 @@ class SequentialBeliefEngine:
                  q=None,
                  k=None,
                  p=None,
-                 sample=None,
+                 d=None,
                  M=None
                  ):
         self.adj_matrix = \
@@ -177,7 +177,7 @@ class SequentialBeliefEngine:
         elif graph_type == "ER":
             self.p = p
         elif graph_type == "BS":
-            self.sample = sample
+            self.d = d
 
         self.mclist = ["ER", "BS"]
 
@@ -231,7 +231,7 @@ class SequentialBeliefEngine:
         obs = history[nbd]
 
         if self.graph_type in self.mclist:
-            return self._mc_soc_llr(n, nbd, obs, history)
+            return self._mc_soc_llr(nbd, obs)
 
         num_ones = np.sum(obs)
         num_zeros = len(obs) - num_ones
@@ -343,7 +343,7 @@ class SequentialBeliefEngine:
                     num_zeros = self.rng.binomial(k - self.M_running_ones,
                                                   self.p)
                 elif self.graph_type == "BS":
-                    num_neighbours = min(k, self.sample)
+                    num_neighbours = min(k, self.d)
                     num_ones = self.rng.hypergeometric(
                         self.M_running_ones,
                         k - self.M_running_ones,

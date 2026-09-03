@@ -200,7 +200,7 @@ THEOREM_3III_CONFIG = ExperimentConfig(
         param="q",
         value_key="signal_accuracy"
     ),
-    extra_params={"sample": 10, "M": 1000},
+    extra_params={"d": 10, "M": 1000},
     plot_path="data/Theorem_3iii_previous_bounded_heatmap.png",
     plot_title="Theorem 3iii (Bounded Sample Graphs with Bounded Signals)",
     plot_xlabel="Signal Accuracy (q)",

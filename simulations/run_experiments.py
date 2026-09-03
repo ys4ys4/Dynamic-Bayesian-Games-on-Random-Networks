@@ -149,7 +149,7 @@ def _validate_run_sim_inputs(
     q,
     k,
     p,
-    sample
+    d
 ):
     """
     validates inputs for run_sim function
@@ -187,11 +187,11 @@ def _validate_run_sim_inputs(
 
         if graph_type == "BS":
             if (
-                not isinstance(sample, numbers.Integral)
-                or sample <= 0
-                or sample > agents
+                not isinstance(d, numbers.Integral)
+                or d <= 0
+                or d > agents
             ):
-                raise ValueError(f"Sample size must be a positive integer\
+                raise ValueError(f"k (sample size) must be a positive integer\
                                     less than {agents}.")
 
     elif game_type is RepeatedGame:
@@ -228,7 +228,7 @@ def _get_graph_generator(
     rng=None,
     k=1,
     p=0.05,
-    sample=10
+    d=10
 ):
     """
     returns a graph generator function based on the specified graph_type
@@ -242,7 +242,7 @@ def _get_graph_generator(
     if graph_type == "previous":
         return lambda: gen_prev(agents)
     if graph_type == "BS":
-        return lambda: gen_bounded_sample(agents, sample, rng=rng)
+        return lambda: gen_bounded_sample(agents, d, rng=rng)
     if graph_type == "complete_connected":
         return lambda: gen_complete_connected(agents)
     if graph_type == "connected_star":
@@ -264,7 +264,7 @@ def run_sim(
     q=0.8,
     k=1,
     p=0.05,
-    sample=10,
+    d=10,
     M=None
 ):
     """
@@ -278,7 +278,7 @@ def run_sim(
     q: signal accuracy for bounded signals (ignored for unbounded signals)
     k: number of EIAs for NEO graphs (ignored for other graphs)
     p: probability of connection for ER graphs (ignored for other graphs)
-    sample: number of predecessors for BS graphs (ignored for other graphs)
+    d: number of predecessors for BS graphs (ignored for other graphs)
     M: number of simulations for Monte Carlo estimation (optional)
     returns a SimulationResult
     """
@@ -291,7 +291,7 @@ def run_sim(
         q=q,
         k=k,
         p=p,
-        sample=sample
+        d=d
     )
 
     rng = np.random.default_rng(seed)
@@ -315,7 +315,7 @@ def run_sim(
     elif graph_type == "ER":
         params["p"] = p
     elif graph_type == "BS":
-        params["sample"] = sample
+        params["d"] = d
 
     gen_graph = _get_graph_generator(
         graph_type,
@@ -323,7 +323,7 @@ def run_sim(
         rng=rng,
         k=k,
         p=p,
-        sample=sample
+        d=d
     )
 
     for _ in range(runs):
@@ -335,7 +335,7 @@ def run_sim(
                          q=q,
                          k=k,
                          p=p,
-                         sample=sample,
+                         d=d,
                          M=M
                          )
         game.play()
